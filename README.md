@@ -1,114 +1,57 @@
-<<<<<<< HEAD
-# Flask ML API Server
+# RadarUMKMBogor API
 
-API server untuk serve machine learning model prediksi tren pasar.
+> Flask ML API untuk prediksi daya tarik produk UMKM Bogor.
 
-## 📁 Struktur Folder
+🚀 **Live:** [radarumkmbogor-api.onrender.com](https://radarumkmbogor-api.onrender.com)
 
-```
-flask_api/
-├── app.py              # Main Flask application
-├── requirements.txt    # Python dependencies
-├── models/            # Folder untuk model files
-│   ├── random_forest_model.pkl
-│   ├── tfidf_vectorizer.pkl
-│   ├── scaler.pkl
-│   ├── label_encoder_kategori.pkl (optional)
-│   └── label_encoder_subkategori.pkl (optional)
-└── README.md
-```
+---
 
-## 🚀 Setup
+## Deskripsi
 
-### 1. Install Dependencies
+REST API berbasis Flask yang menyajikan model Machine Learning (Random Forest) untuk memprediksi apakah suatu produk berpotensi **menarik** atau **kurang menarik** di marketplace. Model dilatih dari dataset 597 produk UMKM Kota & Kabupaten Bogor.
 
-```bash
-pip install -r requirements.txt
-```
+---
 
-### 2. Prepare Model Files
+## Deployment
 
-Copy semua file model (.pkl) hasil training ke folder `models/`:
+Dihosting di **Render** (Free tier — cold start ±30 detik jika tidak aktif).
 
-- `random_forest_model.pkl` - Model Random Forest utama
-- `tfidf_vectorizer.pkl` - TF-IDF vectorizer untuk text features
-- `scaler.pkl` - Standard Scaler untuk numeric features
-- `label_encoder_kategori.pkl` - (Optional) Label encoder untuk kategori
-- `label_encoder_subkategori.pkl` - (Optional) Label encoder untuk sub-kategori
+| Endpoint | URL |
+|---|---|
+| Base URL | `https://radarumkmbogor-api.onrender.com` |
+| Health Check | `https://radarumkmbogor-api.onrender.com/health` |
+| Predict | `https://radarumkmbogor-api.onrender.com/predict` |
 
-### 3. Run Server
+---
+
+## API Endpoints
+
+### GET /health
+
+Cek status server dan model.
 
 ```bash
-python app.py
-```
-
-Server akan berjalan di: `http://localhost:5000`
-
-## 📡 API Endpoints
-
-### 1. Health Check
-
-```bash
-GET /
+curl https://radarumkmbogor-api.onrender.com/health
 ```
 
 Response:
+
 ```json
 {
-  "status": "running",
-  "message": "Flask ML API untuk Prediksi Tren Pasar",
-  "model_loaded": true
+  "status": "ok",
+  "dataset_rows": 597,
+  "model": "model_umkm_bogor.joblib"
 }
 ```
 
-### 2. Predict Product Attractiveness
+---
+
+### POST /predict
+
+Prediksi daya tarik produk.
 
 ```bash
-POST /predict
-Content-Type: application/json
-```
-
-Request Body:
-```json
-{
-  "nama_produk": "Lapis Talas Bogor Original",
-  "kategori": "Makanan & Minuman",
-  "sub_kategori": "Makanan Khas",
-  "harga_produk": 75000,
-  "rating": 4.8
-}
-```
-
-Response:
-```json
-{
-  "prediction_label": 1,
-  "prediction_score": 85.5,
-  "confidence": 0.855,
-  "message": "Produk berpotensi menarik",
-  "probabilities": {
-    "kurang_menarik": 0.145,
-    "menarik": 0.855
-  }
-}
-```
-
-### 3. Test Endpoint
-
-```bash
-GET /test
-```
-
-Test endpoint dengan sample data.
-
-## 🧪 Testing dengan curl
-
-```bash
-# Test health check
-curl http://localhost:5000/
-
-# Test prediction
-curl -X POST http://localhost:5000/predict \
+curl -X POST https://radarumkmbogor-api.onrender.com/predict \
   -H "Content-Type: application/json" \
   -d '{
     "nama_produk": "Lapis Talas Bogor Original",
@@ -119,29 +62,69 @@ curl -X POST http://localhost:5000/predict \
   }'
 ```
 
-## 🐛 Troubleshooting
+Request Body:
 
-### Model files not found
-Pastikan semua file .pkl ada di folder `models/` dan nama file sesuai.
+| Field | Tipe | Keterangan |
+|---|---|---|
+| `nama_produk` | string | Nama lengkap produk |
+| `kategori` | string | Kategori utama produk |
+| `sub_kategori` | string (opsional) | Sub-kategori produk |
+| `harga_produk` | integer | Harga dalam rupiah |
+| `rating` | float | Target rating (0.0 – 5.0) |
 
-### NLTK data error
-Run sekali untuk download NLTK data:
-```python
-import nltk
-nltk.download('stopwords')
+Response:
+
+```json
+{
+  "prediction_label": 1,
+  "prediction_score": 85.5,
+  "insight": "Produk ini memiliki potensi tinggi...",
+  "competitors": [...]
+}
 ```
 
-### Import error Sastrawi
+---
+
+## Stack
+
+| Komponen | Teknologi |
+|---|---|
+| Framework | Flask + Flask-CORS |
+| Model | Random Forest (scikit-learn) |
+| Text Processing | PySastrawi (Stemmer Bahasa Indonesia) |
+| Dataset | 597 produk UMKM Bogor (Tokopedia, Shopee, Lazada) |
+| Model File | `model_umkm_bogor.joblib` |
+
+---
+
+## Struktur
+
+```
+flask_api/
+├── app.py                      # Main Flask application
+├── model_umkm_bogor.joblib     # Model Random Forest terlatih
+├── dataset_umkm_bogor.csv      # Dataset referensi kompetitor
+├── requirements.txt            # Python dependencies
+└── README.md
+```
+
+---
+
+## Menjalankan Lokal (Opsional)
+
+> API sudah tersedia di Render — tidak perlu dijalankan lokal untuk development.
+
+Jika diperlukan untuk development/debugging:
+
 ```bash
-pip install --upgrade Sastrawi
+pip install -r requirements.txt
+python app.py
 ```
 
-## 📝 Notes
+Server akan berjalan di `http://localhost:5001`.
 
-- Text preprocessing harus sama dengan saat training model
-- Pastikan CORS enabled untuk accept request dari Nuxt app
-- Untuk production, gunakan production server seperti Gunicorn
-=======
-# RadarUMKMBogor-API
-Prediksi API model untuk web RadarUMKMBogor
->>>>>>> 8eaf212d300439f8e821ba507b216ec065fc7611
+---
+
+## Lisensi
+
+Repositori ini dibuat untuk keperluan akademik program MBKM.
