@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Flask ML API Server
 
 API server untuk serve machine learning model prediksi tren pasar.
@@ -140,3 +141,7 @@ pip install --upgrade Sastrawi
 - Text preprocessing harus sama dengan saat training model
 - Pastikan CORS enabled untuk accept request dari Nuxt app
 - Untuk production, gunakan production server seperti Gunicorn
+=======
+# RadarUMKMBogor-API
+Prediksi API model untuk web RadarUMKMBogor
+>>>>>>> 8eaf212d300439f8e821ba507b216ec065fc7611
