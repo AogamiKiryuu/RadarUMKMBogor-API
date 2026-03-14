@@ -153,8 +153,7 @@ def predict():
         data = request.json
         nama_produk_input = data.get('nama_produk', '')
         harga_input = float(data.get('harga_produk', 0))
-        # Rating bersifat opsional — default 0.0 untuk pedagang yang belum punya toko online
-        rating_input = float(data.get('rating', 0.0))
+        # Rating TIDAK diinput user — diisi otomatis dari konteks kompetitor
         kategori_input = data.get('kategori', '')
         sub_kategori_input = data.get('sub_kategori', '')
 
@@ -200,6 +199,12 @@ def predict():
         kompetitor_df = kompetitor_df[kompetitor_mask]
         filtered_sim_scores = top_sim_scores[kompetitor_mask]
 
+        # ── HITUNG RATING PROXY dari kompetitor (tidak perlu diinput user) ──
+        if len(kompetitor_df) > 0:
+            rating_input = float(kompetitor_df['rating'].mean())
+        else:
+            rating_input = 3.5  # nilai tengah sebagai fallback jika tidak ada kompetitor
+
         # Jika tidak ada identitas Bogor sama sekali → error
         if not mengandung_identitas_bogor and len(kompetitor_df) == 0:
             return jsonify({
@@ -231,7 +236,13 @@ def predict():
         }])
 
         probabilitas = rf_pipeline.predict_proba(input_df)[0][1]
-        status_prediksi = "🌟 SANGAT MENARIK" if probabilitas >= 0.7 else ("✅ CUKUP MENARIK" if probabilitas >= 0.5 else "⚠️ KURANG MENARIK")
+        peluang_persen = round(probabilitas * 100, 1)
+        if probabilitas >= 0.7:
+            status_prediksi = f"🌟 SANGAT MENARIK — Model memprediksi peluang laku {peluang_persen}%"
+        elif probabilitas >= 0.5:
+            status_prediksi = f"✅ CUKUP MENARIK — Model memprediksi peluang laku {peluang_persen}%"
+        else:
+            status_prediksi = f"⚠️ KURANG MENARIK — Model memprediksi peluang laku {peluang_persen}%"
 
         # ── BANGUN ALASAN PREDIKSI ────────────────────────────────────────────
         alasan_parts = []
@@ -277,7 +288,7 @@ def predict():
         else:
             alasan_parts.append("model menilai produk ini belum cukup kompetitif — pertimbangkan menyesuaikan harga atau memperkuat identitas produk")
 
-        alasan = "; ".join(alasan_parts).capitalize() + "."
+        alasan = [part.capitalize() + "." for part in alasan_parts]
 
         # ── FORMAT KOMPETITOR (termasuk URL & marketplace) ───────────────────
         kompetitor_list = []
@@ -296,7 +307,7 @@ def predict():
         return jsonify({
             "status": "success",
             "kesimpulan": status_prediksi,
-            "peluang_laku_persen": round(probabilitas * 100, 1),
+            "peluang_laku_persen": peluang_persen,
             "alasan": alasan,
             "kompetitor": kompetitor_list
         })
