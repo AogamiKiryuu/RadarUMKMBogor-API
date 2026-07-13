@@ -1,3 +1,27 @@
+%% =========================================================
+%% DIAGRAM 1: ARSITEKTUR PIPELINE PEMROSESAN (Copy kode di bawah ini ke Draw.io)
+%% =========================================================
+graph TD
+    A[Input Produk Baru] --> B{Fitur Teks: nama_produk}
+    A --> C{Fitur Kategori & Sub-Kategori}
+    A --> D{Fitur Harga & Statistik Pasar}
+
+    B -->|TF-IDF Vectorizer| B1[Vektor Teks 1000 Dimensi]
+    C -->|One-Hot Encoder| C1[Representasi Biner Kategori]
+    D -->|StandardScaler| D1[Rasio Harga, Z-Score, Popularity Score Terstandar]
+
+    B1 --> E[Concatenate Features]
+    C1 --> E
+    D1 --> E
+
+    E --> F[Random Forest Classifier v3]
+    F --> G{Voting Ensemble 100 Pohon}
+    G --> H[Output: Probabilitas Peluang Laku %]
+
+
+%% =========================================================
+%% DIAGRAM 2: LOGIKA ATURAN (DECISION TREE RULES) (Copy kode di bawah ini ke kotak Draw.io yang berbeda)
+%% =========================================================
 graph TD
     %% Styling Nodes
     classDef root fill:#4f46e5,stroke:#312e81,stroke-width:2px,color:#fff;
