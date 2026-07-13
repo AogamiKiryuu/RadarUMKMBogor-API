@@ -227,8 +227,8 @@ Rumus ini menggabungkan:
 | Text Processing | PySastrawi (Stemmer Bahasa Indonesia) |
 | Similarity Search | TF-IDF + Cosine Similarity |
 | Dataset | 1.027 produk UMKM Bogor (Tokopedia, Shopee, Lazada) |
-| Model File | `model_umkm_bogor_v3.joblib` |
-| Market Stats | `market_stats_v3.csv`, `market_stats_sub_kategori_v3.csv` |
+| Model File | `models/model_umkm_bogor_v3.joblib` |
+| Market Stats | `data/market_stats_v3.csv`, `data/market_stats_sub_kategori_v3.csv` |
 
 ---
 
@@ -264,7 +264,7 @@ RadarUMKMBogor-API/
 pip install -r requirements.txt
 
 # Jalankan training dulu (jika model belum ada)
-jupyter notebook retrain_model.ipynb
+jupyter notebook notebooks/retrain_model.ipynb
 
 # Jalankan API
 python app.py
