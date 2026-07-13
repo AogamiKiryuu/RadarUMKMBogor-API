@@ -37,6 +37,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     classification_report, accuracy_score,
     roc_auc_score, f1_score, precision_score, recall_score
@@ -205,7 +206,33 @@ for metric in scoring:
     print(f"   {metric:<15} {scores.mean():.4f}   ±{scores.std():.4f}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. HYPERPARAMETER TUNING
+# 7B. CV BASELINE LOGISTIC REGRESSION (PERBANDINGAN)
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[Step 6B] Cross Validation Logistic Regression (Perbandingan)...")
+
+lr_baseline = Pipeline([
+    ('preprocessor', preprocessor),
+    ('classifier', LogisticRegression(
+        max_iter=1000, 
+        class_weight='balanced', 
+        random_state=42, 
+        solver='lbfgs'
+    ))
+])
+
+lr_cv_results = cross_validate(
+    lr_baseline, X_train_val, y_train_val,
+    cv=skf, scoring=scoring, return_train_score=False
+)
+
+print(f"\n   [LR] {'Metrik':<15} {'Mean':>8} {'±Std':>8}")
+print("   " + "-" * 35)
+for metric in scoring:
+    scores = lr_cv_results[f'test_{metric}']
+    print(f"   {metric:<15} {scores.mean():.4f}   ±{scores.std():.4f}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. HYPERPARAMETER TUNING (RANDOM FOREST)
 # ─────────────────────────────────────────────────────────────────────────────
 print("\n[Step 7] Hyperparameter Tuning (GridSearchCV)...")
 print("   Ini mungkin butuh beberapa menit...")
@@ -250,7 +277,14 @@ print(f"   {'Recall':<15} {recall_score(y_test, y_pred):.4f}")
 print(f"   {'F1 Score':<15} {f1_score(y_test, y_pred):.4f}")
 print(f"   {'AUC-ROC':<15} {roc_auc_score(y_test, y_proba):.4f}")
 print()
+print("   --- Klasifikasi RF ---")
 print(classification_report(y_test, y_pred, target_names=['Kurang Menarik', 'Menarik']))
+
+print("\n[Step 8B] Evaluasi LR di holdout test set...")
+lr_baseline.fit(X_train_val, y_train_val)
+lr_pred = lr_baseline.predict(X_test)
+print("   --- Klasifikasi LR ---")
+print(classification_report(y_test, lr_pred, target_names=['Kurang Menarik', 'Menarik']))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. VERIFIKASI LOGIS — SANITY CHECK BISNIS

@@ -8,100 +8,229 @@ from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
-CORS(app) # Mengizinkan Nuxt 3 untuk mengambil data dari Flask
+CORS(app)
 
 print("Memuat Model dan Dataset... Mohon tunggu ⏳")
 
-# 1. Load Model & Dataset
-rf_pipeline = joblib.load('model_umkm_bogor_v2.joblib')
-df = pd.read_csv('dataset_umkm_bogor.csv')
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Load Model, Dataset & Market Stats
+# ─────────────────────────────────────────────────────────────────────────────
+rf_pipeline  = joblib.load('models/model_umkm_bogor_v3.joblib')
+df           = pd.read_csv('data/processed/dataset_preprocessed.csv')
+market_stats = pd.read_csv('data/market_stats_v3.csv').set_index('kategori')
 
-# 2. Load statistik pasar per kategori (dihasilkan saat retrain)
-#    Dipakai untuk menghitung rasio_harga, zscore_harga, segmen_harga
-market_stats = pd.read_csv('market_stats_per_kategori.csv').set_index('kategori')
+# Market stats per sub_kategori (untuk fitur Paling Digemari)
+try:
+    market_stats_sub = pd.read_csv('data/market_stats_sub_kategori_v3.csv')
+except FileNotFoundError:
+    market_stats_sub = None
 
-# 3. Setup Sastrawi Stemmer
+# Pastikan kolom popularity_score ada
+if 'popularity_score' not in df.columns:
+    df['popularity_score'] = df['rating'] * np.log1p(df['jumlah_terjual'])
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Setup Sastrawi Stemmer
+# ─────────────────────────────────────────────────────────────────────────────
 stemmer = StemmerFactory().create_stemmer()
-list_stopwords = {'murah', 'promo', 'cod', 'terlaris', 'original', 'ori', 'asli', 'oleh', 'pcs', 'gr', 'gram', 'kg', 'dan', 'di', 'ke', 'dari', 'yang'}
+list_stopwords = {
+    'murah', 'promo', 'cod', 'terlaris', 'original', 'ori', 'asli',
+    'oleh', 'pcs', 'gr', 'gram', 'kg', 'dan', 'di', 'ke', 'dari', 'yang',
+    'khas', 'bogor', 'untuk', 'dengan', 'yang', 'ini', 'itu'
+}
 
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r'[^a-z\s]', ' ', text)
-    words = text.split()
-    words = [w for w in words if w not in list_stopwords]
+    words = [w for w in text.split() if w not in list_stopwords]
     return stemmer.stem(' '.join(words))
 
-# 4. Pre-Cache TF-IDF untuk mempercepat pencarian
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Pre-Cache TF-IDF untuk pencarian kompetitor
+# ─────────────────────────────────────────────────────────────────────────────
 print("Mengoptimasi pencarian kompetitor (Pre-caching TF-IDF)...")
-tfidf_vectorizer = rf_pipeline.named_steps['preprocessor'].transformers_[0][1]
-X_train_text_db = tfidf_vectorizer.transform(df['nama_produk_clean'].fillna(''))
-print("✅ Server Flask SIAP DIGUNAKAN!")
+tfidf_vectorizer  = rf_pipeline.named_steps['preprocessor'].transformers_[0][1]
+X_train_text_db   = tfidf_vectorizer.transform(df['nama_produk_clean'].fillna(''))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. HELPER: Hitung fitur bisnis relatif terhadap pasar
+# 4. Pre-compute Insight Keseluruhan (di-cache saat startup)
 # ─────────────────────────────────────────────────────────────────────────────
+def _build_kategori_ranking():
+    """Hitung ranking popularitas semua kategori dari dataset referensi."""
+    stats = df.groupby('kategori').agg(
+        total_popularity  = ('popularity_score', 'sum'),
+        avg_popularity    = ('popularity_score', 'mean'),
+        total_terjual     = ('jumlah_terjual', 'sum'),
+        avg_rating        = ('rating', 'mean'),
+        jumlah_produk     = ('nama_produk', 'count'),
+        median_harga      = ('harga_produk', 'median'),
+    ).reset_index().sort_values('total_popularity', ascending=False)
+    return stats
 
+def _build_sub_kategori_ranking():
+    """Hitung ranking popularitas semua sub_kategori dari dataset referensi."""
+    stats = df.groupby(['kategori', 'sub_kategori']).agg(
+        total_popularity  = ('popularity_score', 'sum'),
+        avg_popularity    = ('popularity_score', 'mean'),
+        total_terjual     = ('jumlah_terjual', 'sum'),
+        avg_rating        = ('rating', 'mean'),
+        jumlah_produk     = ('nama_produk', 'count'),
+        median_harga      = ('harga_produk', 'median'),
+    ).reset_index().sort_values('total_popularity', ascending=False)
+    return stats
+
+KATEGORI_RANKING     = _build_kategori_ranking()
+SUB_KATEGORI_RANKING = _build_sub_kategori_ranking()
+
+print("✅ Server Flask SIAP DIGUNAKAN! (Model v3)")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. HELPER: Fitur Bisnis Relatif Pasar
+# ─────────────────────────────────────────────────────────────────────────────
 def hitung_fitur_bisnis(harga: float, kategori: str) -> dict:
     """
-    Menghitung fitur harga yang RELATIF terhadap pasar per kategori.
-    Ini yang membuat model 'mengerti' apakah harga mahal atau murah.
-
-    Returns dict dengan: rasio_harga, zscore_harga, log_harga, segmen_harga
+    Menghitung fitur harga RELATIF terhadap pasar per kategori.
+    Dipakai untuk inference model v3.
     """
     if kategori in market_stats.index:
-        stat = market_stats.loc[kategori]
+        stat       = market_stats.loc[kategori]
         median_kat = stat['median_harga_kategori']
         mean_kat   = stat['mean_harga_kategori']
         std_kat    = stat['std_harga_kategori']
         q25_kat    = stat['q25_harga_kategori']
         q75_kat    = stat['q75_harga_kategori']
     else:
-        # Fallback: pakai statistik global jika kategori tidak dikenal
         median_kat = df['harga_produk'].median()
         mean_kat   = df['harga_produk'].mean()
         std_kat    = df['harga_produk'].std()
         q25_kat    = df['harga_produk'].quantile(0.25)
         q75_kat    = df['harga_produk'].quantile(0.75)
 
-    # Rasio harga vs median pasar (fitur paling penting secara bisnis)
-    rasio = harga / max(median_kat, 1)
-    rasio = min(rasio, 50)  # cap
+    rasio  = min(harga / max(median_kat, 1), 50)
+    zscore = float(np.clip((harga - mean_kat) / max(std_kat, 1), -5, 5))
+    log_h  = float(np.log1p(harga))
 
-    # Z-score dalam kategori
-    zscore = (harga - mean_kat) / max(std_kat, 1)
-    zscore = max(-5, min(5, zscore))  # clip
-
-    # Log transform
-    log_h = np.log1p(harga)
-
-    # Segmen: 0=murah, 1=menengah, 2=premium
-    if harga <= q25_kat:
-        segmen = 0
-    elif harga <= q75_kat:
-        segmen = 1
-    else:
-        segmen = 2
+    if harga <= q25_kat:    segmen = 0
+    elif harga <= q75_kat:  segmen = 1
+    else:                   segmen = 2
 
     return {
-        'rasio_harga': rasio,
-        'zscore_harga': zscore,
-        'log_harga': log_h,
-        'segmen_harga': segmen,
-        'median_pasar': median_kat,
-        'selisih_persen': ((harga - median_kat) / max(median_kat, 1)) * 100,
+        'rasio_harga'    : rasio,
+        'zscore_harga'   : zscore,
+        'log_harga'      : log_h,
+        'segmen_harga'   : segmen,
+        'median_pasar'   : float(median_kat),
+        'selisih_persen' : ((harga - median_kat) / max(median_kat, 1)) * 100,
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. DATA REFERENSI IDENTITAS BOGOR (Kota & Kabupaten)
+# 6. HELPER: Produk Paling Digemari
 # ─────────────────────────────────────────────────────────────────────────────
+def get_top_produk(kategori: str, sub_kategori: str = None, top_n: int = 5) -> list:
+    """
+    Mengembalikan daftar produk paling digemari di suatu kategori/sub_kategori.
 
+    Skor popularitas = rating × log1p(jumlah_terjual)
+    Menggabungkan kualitas produk (rating) dan volume penjualan (jumlah terjual).
+    """
+    mask = df['kategori'] == kategori
+    if sub_kategori and sub_kategori.strip():
+        mask_sub = df['sub_kategori'] == sub_kategori
+        subset = df[mask & mask_sub].copy()
+        # Fallback ke seluruh kategori jika sub_kategori tidak ada datanya
+        if len(subset) == 0:
+            subset = df[mask].copy()
+    else:
+        subset = df[mask].copy()
+
+    if len(subset) == 0:
+        return []
+
+    subset = subset.sort_values('popularity_score', ascending=False).head(top_n)
+
+    result = []
+    for _, row in subset.iterrows():
+        result.append({
+            "nama"             : str(row['nama_produk']),
+            "kategori"         : str(row['kategori']),
+            "sub_kategori"     : str(row['sub_kategori']),
+            "harga"            : float(row['harga_produk']),
+            "jumlah_terjual"   : float(row['jumlah_terjual']),
+            "rating"           : float(row['rating']),
+            "popularity_score" : round(float(row['popularity_score']), 2),
+            "marketplace"      : str(row.get('marketplace', '')),
+            "url_produk"       : str(row.get('url_produk', '')),
+            "nama_toko"        : str(row.get('nama_toko', '')),
+        })
+    return result
+
+
+def get_insight_keseluruhan(kategori_input: str = None) -> dict:
+    """
+    Mengembalikan insight pasar keseluruhan:
+    - Kategori & sub_kategori mana yang paling digemari
+    - Ranking lengkap semua kategori
+    - Posisi kategori yang sedang dilihat user
+    """
+    # Ranking semua kategori
+    ranking_list = []
+    for i, row in KATEGORI_RANKING.iterrows():
+        ranking_list.append({
+            "rank"              : int(KATEGORI_RANKING.index.get_loc(i)) + 1,
+            "kategori"          : str(row['kategori']),
+            "total_popularity"  : round(float(row['total_popularity']), 1),
+            "avg_rating"        : round(float(row['avg_rating']), 2),
+            "total_terjual"     : int(row['total_terjual']),
+            "jumlah_produk"     : int(row['jumlah_produk']),
+            "median_harga"      : int(row['median_harga']),
+        })
+
+    # Kategori terpopuler
+    top_kategori = KATEGORI_RANKING.iloc[0]
+
+    # Sub_kategori terpopuler
+    top_sub = SUB_KATEGORI_RANKING.iloc[0]
+
+    # Posisi kategori user dalam ranking
+    posisi_kategori = None
+    if kategori_input:
+        mask = KATEGORI_RANKING['kategori'] == kategori_input
+        if mask.any():
+            posisi_kategori = int(KATEGORI_RANKING[mask].index[0]) + 1
+
+    # Top 5 sub_kategori dari semua kategori
+    top_sub_list = []
+    for _, row in SUB_KATEGORI_RANKING.head(5).iterrows():
+        top_sub_list.append({
+            "kategori"     : str(row['kategori']),
+            "sub_kategori" : str(row['sub_kategori']),
+            "total_terjual": int(row['total_terjual']),
+            "avg_rating"   : round(float(row['avg_rating']), 2),
+        })
+
+    return {
+        "kategori_terpopuler"    : str(top_kategori['kategori']),
+        "sub_kategori_terpopuler": str(top_sub['sub_kategori']),
+        "posisi_kategori_anda"   : posisi_kategori,
+        "total_kategori"         : len(ranking_list),
+        "ranking_kategori"       : ranking_list,
+        "top5_sub_kategori"      : top_sub_list,
+        "narasi": (
+            f"Secara keseluruhan, produk yang paling banyak diminati pembeli adalah kategori "
+            f"'{top_kategori['kategori']}' dengan total estimasi {int(top_kategori['total_terjual']):,} penjualan "
+            f"dan rata-rata rating {top_kategori['avg_rating']:.2f}. "
+            f"Sub-kategori paling populer adalah '{top_sub['sub_kategori']}' "
+            f"({top_sub['kategori']}) dengan {int(top_sub['total_terjual']):,} total terjual."
+        )
+    }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. DATA REFERENSI IDENTITAS BOGOR
+# ─────────────────────────────────────────────────────────────────────────────
 KATA_KUNCI_WILAYAH_BOGOR = [
-    # Umum
     'bogor',
-    # Kecamatan / Daerah Kota Bogor
     'tanah sareal', 'bogor barat', 'bogor timur', 'bogor selatan', 'bogor utara',
     'bogor tengah', 'sempur', 'ciwaringin', 'gudang', 'paledang', 'babakan',
-    # Kecamatan / Daerah Kabupaten Bogor
     'cibinong', 'citeureup', 'gunung putri', 'jonggol', 'cariu', 'tanjungsari',
     'sukamakmur', 'babakan madang', 'sentul', 'sukaraja', 'ciawi', 'cigombong',
     'caringin', 'cisarua', 'puncak', 'megamendung', 'cijeruk', 'kemang',
@@ -109,107 +238,68 @@ KATA_KUNCI_WILAYAH_BOGOR = [
     'sukajaya', 'nanggung', 'leuwiliang', 'leuwisadeng', 'pamijahan',
     'cibungbulang', 'ciampea', 'tenjolaya', 'dramaga', 'ciomas', 'tamansari',
     'jasinga', 'tenjo', 'parungpanjang',
-    # Produk & ikon khas Kota Bogor
     'lapis talas', 'talas bogor', 'roti unyil', 'asinan bogor', 'toge goreng',
     'laksa bogor', 'soto mie bogor', 'batagor bogor', 'dodol bogor',
     'manisan bogor', 'kujang', 'uncal', 'sangkuriang', 'liong',
     'noga', 'teng teng bogor', 'enting enting bogor', 'renginang bogor',
     'pie bogor', 'gepuk bogor', 'tauco bogor', 'ali agrem', 'cungkring',
-    # Produk & ikon khas Kabupaten Bogor
     'kopi puncak', 'teh puncak', 'strawberry puncak', 'stroberi cisarua',
     'stroberi puncak', 'emping ciawi', 'tauco cibinong', 'kopi bogor',
     'teh bogor', 'susu bogor', 'madu bogor', 'jamur bogor',
 ]
 
 PRODUK_KATEGORI_MAP = {
-    # ── MAKANAN ──────────────────────────────────────────────────────────────
-    'lapis talas'       : 'Makanan',
-    'talas bogor'       : 'Makanan',
-    'talas'             : 'Makanan',
-    'roti unyil'        : 'Makanan',
-    'asinan'            : 'Makanan',
-    'toge goreng'       : 'Makanan',
-    'laksa'             : 'Makanan',
-    'soto mie'          : 'Makanan',
-    'batagor'           : 'Makanan',
-    'dodol'             : 'Makanan',
-    'manisan'           : 'Makanan',
-    'noga'              : 'Makanan',
-    'teng teng'         : 'Makanan',
-    'enting enting'     : 'Makanan',
-    'renginang'         : 'Makanan',
-    'emping'            : 'Makanan',
-    'pie bogor'         : 'Makanan',
-    'pie talas'         : 'Makanan',
-    'gepuk'             : 'Makanan',
-    'tauco'             : 'Makanan',
-    'ali agrem'         : 'Makanan',
-    'cungkring'         : 'Makanan',
-    'keripik'           : 'Makanan',
-    'camilan'           : 'Makanan',
-    'snack'             : 'Makanan',
-    'kue'               : 'Makanan',
-    'roti'              : 'Makanan',
-    'lapis'             : 'Makanan',
-    'abon'              : 'Makanan',
-    'dendeng'           : 'Makanan',
-    'sambal'            : 'Makanan',
-    'sambel'            : 'Makanan',
-    'tempe'             : 'Makanan',
-    'tahu'              : 'Makanan',
-    'madu'              : 'Makanan',
-    'jamur'             : 'Makanan',
-    'stroberi'          : 'Makanan',
-    'strawberry'        : 'Makanan',
-    'susu'              : 'Makanan',
-    # ── MINUMAN ──────────────────────────────────────────────────────────────
-    'kopi'              : 'Minuman',
-    'teh'               : 'Minuman',
-    'bandrek'           : 'Minuman',
-    'minuman'           : 'Minuman',
-    'jus'               : 'Minuman',
-    'sirup'             : 'Minuman',
-    'wedang'            : 'Minuman',
-    # ── PAKAIAN & FASHION ────────────────────────────────────────────────────
-    'batik'             : 'Pakaian & Fashion',
-    'kebaya'            : 'Pakaian & Fashion',
-    'baju'              : 'Pakaian & Fashion',
-    'kaos'              : 'Pakaian & Fashion',
-    'jaket'             : 'Pakaian & Fashion',
-    'celana'            : 'Pakaian & Fashion',
-    'kemeja'            : 'Pakaian & Fashion',
-    'dress'             : 'Pakaian & Fashion',
-    # ── AKSESORIS & SOUVENIR ─────────────────────────────────────────────────
-    'kujang'            : 'Aksesoris & Souvenir',
-    'uncal'             : 'Aksesoris & Souvenir',
-    'souvenir'          : 'Aksesoris & Souvenir',
-    'gantungan kunci'   : 'Aksesoris & Souvenir',
-    'magnet kulkas'     : 'Aksesoris & Souvenir',
-    'topi'              : 'Aksesoris & Souvenir',
-    'tas'               : 'Aksesoris & Souvenir',
-    'dompet'            : 'Aksesoris & Souvenir',
-    'gelang'            : 'Aksesoris & Souvenir',
-    'bros'              : 'Aksesoris & Souvenir',
-    'miniatur'          : 'Aksesoris & Souvenir',
+    'lapis talas': 'Makanan', 'talas bogor': 'Makanan', 'talas': 'Makanan',
+    'roti unyil': 'Makanan', 'asinan': 'Makanan', 'toge goreng': 'Makanan',
+    'laksa': 'Makanan', 'soto mie': 'Makanan', 'batagor': 'Makanan',
+    'dodol': 'Makanan', 'manisan': 'Makanan', 'noga': 'Makanan',
+    'teng teng': 'Makanan', 'enting enting': 'Makanan', 'renginang': 'Makanan',
+    'emping': 'Makanan', 'pie bogor': 'Makanan', 'pie talas': 'Makanan',
+    'gepuk': 'Makanan', 'tauco': 'Makanan', 'ali agrem': 'Makanan',
+    'cungkring': 'Makanan', 'keripik': 'Makanan', 'camilan': 'Makanan',
+    'snack': 'Makanan', 'kue': 'Makanan', 'roti': 'Makanan',
+    'lapis': 'Makanan', 'abon': 'Makanan', 'dendeng': 'Makanan',
+    'sambal': 'Makanan', 'sambel': 'Makanan', 'tempe': 'Makanan',
+    'tahu': 'Makanan', 'madu': 'Makanan', 'jamur': 'Makanan',
+    'stroberi': 'Makanan', 'strawberry': 'Makanan', 'susu': 'Makanan',
+    'kopi': 'Minuman', 'teh': 'Minuman', 'bandrek': 'Minuman',
+    'minuman': 'Minuman', 'jus': 'Minuman', 'sirup': 'Minuman', 'wedang': 'Minuman',
+    'batik': 'Pakaian & Fashion', 'kebaya': 'Pakaian & Fashion',
+    'baju': 'Pakaian & Fashion', 'kaos': 'Pakaian & Fashion',
+    'jaket': 'Pakaian & Fashion', 'celana': 'Pakaian & Fashion',
+    'kemeja': 'Pakaian & Fashion', 'dress': 'Pakaian & Fashion',
+    'kujang': 'Aksesoris & Souvenir', 'uncal': 'Aksesoris & Souvenir',
+    'souvenir': 'Aksesoris & Souvenir', 'gantungan kunci': 'Aksesoris & Souvenir',
+    'magnet kulkas': 'Aksesoris & Souvenir', 'topi': 'Aksesoris & Souvenir',
+    'tas': 'Aksesoris & Souvenir', 'dompet': 'Aksesoris & Souvenir',
+    'gelang': 'Aksesoris & Souvenir', 'bros': 'Aksesoris & Souvenir',
+    'miniatur': 'Aksesoris & Souvenir',
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
-        "status": "ok",
-        "model": "model_umkm_bogor_v2.joblib",
-        "dataset_rows": len(df),
-        "message": "Flask ML API v2 siap digunakan ✅ (fitur harga relatif pasar aktif)"
+        "status"       : "ok",
+        "model"        : "model_umkm_bogor_v3.joblib",
+        "dataset_rows" : len(df),
+        "versi"        : "v3",
+        "fitur_baru"   : ["jumlah_log", "revenue_proxy_log", "popularity_score", "produk_terpopuler"],
+        "message"      : "Flask ML API v3 siap ✅ (fitur Paling Digemari aktif)"
     })
+
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.json
-        nama_produk_input   = data.get('nama_produk', '')
-        harga_input         = float(data.get('harga_produk', 0))
-        kategori_input      = data.get('kategori', '')
-        sub_kategori_input  = data.get('sub_kategori', '')
+        nama_produk_input  = data.get('nama_produk', '')
+        harga_input        = float(data.get('harga_produk', 0))
+        kategori_input     = data.get('kategori', '')
+        sub_kategori_input = data.get('sub_kategori', '')
 
         # Validasi Harga
         if harga_input <= 0:
@@ -217,8 +307,8 @@ def predict():
 
         nama_lower = nama_produk_input.lower()
 
-        # ── VALIDASI 1: Cek mismatch kategori ──────────────────────────────
-        produk_terdeteksi  = None
+        # ── VALIDASI 1: Cek mismatch kategori ─────────────────────────────────
+        produk_terdeteksi   = None
         kategori_seharusnya = None
         for kata_kunci in sorted(PRODUK_KATEGORI_MAP.keys(), key=len, reverse=True):
             if kata_kunci in nama_lower:
@@ -228,115 +318,116 @@ def predict():
 
         if kategori_seharusnya and kategori_input and kategori_input != kategori_seharusnya:
             return jsonify({
-                "status": "error",
+                "status" : "error",
                 "message": (
                     f"Kategori tidak sesuai untuk produk '{nama_produk_input}'. "
-                    f"Kata kunci '{produk_terdeteksi}' mengindikasikan produk ini termasuk "
-                    f"kategori '{kategori_seharusnya}', bukan '{kategori_input}'. "
-                    f"Silakan pilih kategori '{kategori_seharusnya}'."
+                    f"Kata kunci '{produk_terdeteksi}' mengindikasikan kategori "
+                    f"'{kategori_seharusnya}', bukan '{kategori_input}'."
                 )
             }), 400
 
-        # ── VALIDASI 2: Deteksi Identitas Bogor ────────────────────────────
+        # ── VALIDASI 2: Identitas Bogor ────────────────────────────────────────
         mengandung_identitas_bogor = any(kata in nama_lower for kata in KATA_KUNCI_WILAYAH_BOGOR)
 
-        # ── Cari Kompetitor menggunakan Cosine Similarity ──────────────────
-        query_clean = clean_text(nama_produk_input)
-        query_vec   = tfidf_vectorizer.transform([query_clean])
-        sim_scores  = cosine_similarity(query_vec, X_train_text_db).flatten()
-        top_indices = sim_scores.argsort()[-5:][::-1]
+        # ── Cari Kompetitor — Cosine Similarity ───────────────────────────────
+        query_clean  = clean_text(nama_produk_input)
+        query_vec    = tfidf_vectorizer.transform([query_clean])
+        sim_scores   = cosine_similarity(query_vec, X_train_text_db).flatten()
+        top_indices  = sim_scores.argsort()[-5:][::-1]
 
-        kompetitor_df       = df.iloc[top_indices].copy()
-        top_sim_scores      = sim_scores[top_indices]
-        kompetitor_mask     = top_sim_scores > 0.05
-        kompetitor_df       = kompetitor_df[kompetitor_mask]
-        filtered_sim_scores = top_sim_scores[kompetitor_mask]
+        kompetitor_df      = df.iloc[top_indices].copy()
+        top_sim_scores     = sim_scores[top_indices]
+        kompetitor_mask    = top_sim_scores > 0.05
+        kompetitor_df      = kompetitor_df[kompetitor_mask]
+        filtered_sim       = top_sim_scores[kompetitor_mask]
 
-        # ── Rating proxy dari kompetitor ───────────────────────────────────
+        # ── Estimasi Rating & Jumlah dari Kompetitor ─────────────────────────
         if len(kompetitor_df) > 0:
-            rating_input = float(kompetitor_df['rating'].mean())
+            rating_est = float(kompetitor_df['rating'].mean())
+            jumlah_est = float(kompetitor_df['jumlah_terjual'].median())
         else:
-            rating_input = 3.5
+            rating_est = 3.5
+            jumlah_est = 30.0
 
-        # Validasi identitas Bogor
+        # ── Validasi identitas Bogor ───────────────────────────────────────────
         if not mengandung_identitas_bogor and len(kompetitor_df) == 0:
             return jsonify({
-                "status": "error",
+                "status" : "error",
                 "message": (
-                    f"Produk '{nama_produk_input}' tidak terdeteksi sebagai produk khas Bogor "
-                    f"(Kota maupun Kabupaten). Pastikan nama produk mengandung identitas lokal Bogor, "
-                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
+                    f"Produk '{nama_produk_input}' tidak terdeteksi sebagai produk khas Bogor. "
+                    f"Pastikan nama produk mengandung identitas lokal seperti 'Khas Bogor', "
+                    f"nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
                     f"atau produk ikonik (Lapis Talas, Roti Unyil, Kopi Puncak, Renginang, dll)."
                 )
             }), 400
 
         if not mengandung_identitas_bogor:
             return jsonify({
-                "status": "warning",
+                "status" : "warning",
                 "message": (
-                    f"Produk '{nama_produk_input}' tidak secara eksplisit mencantumkan identitas Bogor. "
-                    f"Untuk memperkuat positioning sebagai produk UMKM Bogor, tambahkan kata kunci "
-                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
-                    f"atau produk ikonik pada nama produk Anda."
+                    f"Produk '{nama_produk_input}' tidak mencantumkan identitas Bogor secara eksplisit. "
+                    f"Tambahkan 'Khas Bogor', nama kawasan, atau produk ikonik pada nama produk Anda."
                 )
             }), 400
 
-        # ── HITUNG FITUR BISNIS RELATIF PASAR ─────────────────────────────
-        # Inilah inti perbaikan v2: model sekarang menerima harga yang
-        # sudah dinormalisasi terhadap konteks pasar per kategori.
-        fitur_bisnis = hitung_fitur_bisnis(harga_input, kategori_input)
+        # ── Hitung Fitur Bisnis ────────────────────────────────────────────────
+        fitur = hitung_fitur_bisnis(harga_input, kategori_input)
 
-        # ── PREDIKSI Machine Learning ──────────────────────────────────────
+        jumlah_log        = float(np.log1p(jumlah_est))
+        revenue_proxy_log = float(np.log1p(harga_input * jumlah_est))
+        popularity_score  = float(rating_est * np.log1p(jumlah_est))
+
+        # ── Prediksi ML ───────────────────────────────────────────────────────
         input_df = pd.DataFrame([{
             'nama_produk_clean' : query_clean,
             'kategori'          : kategori_input,
             'sub_kategori'      : sub_kategori_input,
-            'rasio_harga'       : fitur_bisnis['rasio_harga'],
-            'zscore_harga'      : fitur_bisnis['zscore_harga'],
-            'log_harga'         : fitur_bisnis['log_harga'],
-            'segmen_harga'      : fitur_bisnis['segmen_harga'],
-            'rating'            : rating_input,
+            'rasio_harga'       : fitur['rasio_harga'],
+            'zscore_harga'      : fitur['zscore_harga'],
+            'log_harga'         : fitur['log_harga'],
+            'segmen_harga'      : fitur['segmen_harga'],
+            'rating'            : rating_est,
+            'jumlah_log'        : jumlah_log,
+            'revenue_proxy_log' : revenue_proxy_log,
+            'popularity_score'  : popularity_score,
         }])
 
-        probabilitas    = rf_pipeline.predict_proba(input_df)[0][1]
-        peluang_persen  = round(probabilitas * 100, 1)
+        probabilitas   = rf_pipeline.predict_proba(input_df)[0][1]
+        peluang_persen = round(probabilitas * 100, 1)
 
         if probabilitas >= 0.7:
-            status_prediksi = f"🌟 SANGAT MENARIK — Model memprediksi peluang laku {peluang_persen}%"
+            status_prediksi = f"🌟 SANGAT MENARIK — Peluang laku {peluang_persen}%"
         elif probabilitas >= 0.5:
-            status_prediksi = f"✅ CUKUP MENARIK — Model memprediksi peluang laku {peluang_persen}%"
+            status_prediksi = f"✅ CUKUP MENARIK — Peluang laku {peluang_persen}%"
         else:
-            status_prediksi = f"⚠️ KURANG MENARIK — Model memprediksi peluang laku {peluang_persen}%"
+            status_prediksi = f"⚠️ KURANG MENARIK — Peluang laku {peluang_persen}%"
 
-        # ── BANGUN ALASAN PREDIKSI ─────────────────────────────────────────
-        alasan_parts = []
-        median_pasar    = fitur_bisnis['median_pasar']
-        selisih_persen  = fitur_bisnis['selisih_persen']
+        # ── Bangun Alasan Prediksi ─────────────────────────────────────────────
+        alasan_parts    = []
+        median_pasar    = fitur['median_pasar']
+        selisih_persen  = fitur['selisih_persen']
 
         if len(kompetitor_df) > 0:
-            avg_harga_kompetitor    = kompetitor_df['harga_produk'].mean()
-            avg_terjual_kompetitor  = kompetitor_df['jumlah_terjual'].mean()
-            avg_rating_kompetitor   = kompetitor_df['rating'].mean()
-            jumlah_kompetitor       = len(kompetitor_df)
+            avg_harga_k   = kompetitor_df['harga_produk'].mean()
+            avg_terjual_k = kompetitor_df['jumlah_terjual'].mean()
+            n_k           = len(kompetitor_df)
 
-            # Konteks persaingan
-            if jumlah_kompetitor >= 4:
-                alasan_parts.append(f"produk serupa sudah banyak dijual di marketplace ({jumlah_kompetitor} kompetitor ditemukan)")
-            elif jumlah_kompetitor >= 2:
-                alasan_parts.append(f"terdapat {jumlah_kompetitor} produk serupa di marketplace")
+            if n_k >= 4:
+                alasan_parts.append(f"produk serupa sudah banyak dijual ({n_k} kompetitor ditemukan)")
+            elif n_k >= 2:
+                alasan_parts.append(f"terdapat {n_k} produk serupa di marketplace")
             else:
-                alasan_parts.append("produk ini masih sangat jarang ditemukan di marketplace (potensi pasar terbuka lebar)")
+                alasan_parts.append("produk ini masih sangat jarang di marketplace (peluang terbuka lebar)")
 
-            # Konteks harga — kini dijelaskan vs MEDIAN PASAR kategori
             if selisih_persen > 100:
                 alasan_parts.append(
-                    f"harga Anda {selisih_persen:.0f}% lebih tinggi dari median pasar kategori ini "
-                    f"(Rp{median_pasar:,.0f}) — harga yang terlalu tinggi akan sangat sulit bersaing"
+                    f"harga Anda {selisih_persen:.0f}% di atas median pasar (Rp{median_pasar:,.0f}) — "
+                    f"sangat sulit bersaing"
                 )
             elif selisih_persen > 30:
                 alasan_parts.append(
                     f"harga Anda {selisih_persen:.0f}% di atas median pasar (Rp{median_pasar:,.0f}) — "
-                    f"pertimbangkan menurunkan harga atau menambah nilai tambah produk"
+                    f"pertimbangkan menyesuaikan harga atau menambah nilai tambah"
                 )
             elif selisih_persen < -30:
                 alasan_parts.append(
@@ -345,60 +436,105 @@ def predict():
                 )
             else:
                 alasan_parts.append(
-                    f"harga Anda sudah kompetitif, hanya {abs(selisih_persen):.0f}% "
+                    f"harga Anda kompetitif, hanya {abs(selisih_persen):.0f}% "
                     f"{'di atas' if selisih_persen > 0 else 'di bawah'} median pasar (Rp{median_pasar:,.0f})"
                 )
 
-            # Konteks penjualan kompetitor
-            if avg_terjual_kompetitor >= 100:
-                alasan_parts.append(f"produk sejenis terbukti laku keras dengan rata-rata {avg_terjual_kompetitor:.0f} terjual")
-            elif avg_terjual_kompetitor >= 20:
-                alasan_parts.append(f"produk sejenis memiliki permintaan sedang dengan rata-rata {avg_terjual_kompetitor:.0f} terjual")
+            if avg_terjual_k >= 100:
+                alasan_parts.append(f"produk sejenis terbukti laku keras (rata-rata {avg_terjual_k:.0f} terjual)")
+            elif avg_terjual_k >= 20:
+                alasan_parts.append(f"produk sejenis memiliki permintaan sedang (rata-rata {avg_terjual_k:.0f} terjual)")
             else:
-                alasan_parts.append(f"penjualan produk sejenis di pasar masih rendah (rata-rata {avg_terjual_kompetitor:.0f} terjual)")
+                alasan_parts.append(f"penjualan produk sejenis masih rendah (rata-rata {avg_terjual_k:.0f} terjual)")
         else:
-            alasan_parts.append("belum ada produk serupa yang terdeteksi di marketplace, peluang untuk menjadi yang pertama sangat besar")
+            alasan_parts.append("belum ada produk serupa yang terdeteksi, peluang menjadi yang pertama sangat besar")
 
-        # Konteks probabilitas akhir
         if probabilitas >= 0.7:
-            alasan_parts.append("model menilai kombinasi nama, kategori, dan posisi harga Anda sangat sesuai dengan tren pasar saat ini")
+            alasan_parts.append("model menilai kombinasi nama, kategori, dan posisi harga sangat sesuai tren pasar")
         elif probabilitas >= 0.5:
-            alasan_parts.append("model menilai produk Anda cukup berpotensi, namun masih ada ruang untuk optimasi harga atau penamaan")
+            alasan_parts.append("model menilai produk cukup berpotensi, masih ada ruang untuk optimasi")
         else:
-            alasan_parts.append("model menilai produk ini belum cukup kompetitif — pertimbangkan menyesuaikan harga mendekati median pasar atau memperkuat identitas produk")
+            alasan_parts.append("model menilai produk belum cukup kompetitif — sesuaikan harga atau perkuat identitas")
 
-        alasan = [part.capitalize() + "." for part in alasan_parts]
+        alasan = [p.capitalize() + "." for p in alasan_parts]
 
-        # ── FORMAT KOMPETITOR ──────────────────────────────────────────────
+        # ── Format Kompetitor ─────────────────────────────────────────────────
         kompetitor_list = []
         for idx, (_, row) in enumerate(kompetitor_df.iterrows()):
             kompetitor_list.append({
-                "nama"              : row['nama_produk'],
-                "harga"             : float(row['harga_produk']),
-                "rating"            : float(row['rating']),
-                "terjual"           : float(row['jumlah_terjual']),
-                "marketplace"       : str(row.get('marketplace', '')),
-                "url_produk"        : str(row.get('url_produk', '')),
-                "kemiripan_persen"  : round(float(filtered_sim_scores[idx]) * 100, 1),
+                "nama"             : row['nama_produk'],
+                "harga"            : float(row['harga_produk']),
+                "rating"           : float(row['rating']),
+                "terjual"          : float(row['jumlah_terjual']),
+                "marketplace"      : str(row.get('marketplace', '')),
+                "url_produk"       : str(row.get('url_produk', '')),
+                "kemiripan_persen" : round(float(filtered_sim[idx]) * 100, 1),
             })
 
-        # ── KIRIM RESPONSE ─────────────────────────────────────────────────
+        # ── Produk Paling Digemari di Kategori/Sub-Kategori ini ──────────────
+        top_produk = get_top_produk(kategori_input, sub_kategori_input, top_n=5)
+
+        # ── Insight Pasar Keseluruhan ─────────────────────────────────────────
+        insight_pasar = get_insight_keseluruhan(kategori_input)
+
+        # ── Sub-kategori terpopuler dalam kategori yang sama ──────────────────
+        sub_ranking_in_kat = SUB_KATEGORI_RANKING[
+            SUB_KATEGORI_RANKING['kategori'] == kategori_input
+        ].head(5)
+        sub_ranking_list = []
+        for _, row in sub_ranking_in_kat.iterrows():
+            sub_ranking_list.append({
+                "sub_kategori"  : str(row['sub_kategori']),
+                "total_terjual" : int(row['total_terjual']),
+                "avg_rating"    : round(float(row['avg_rating']), 2),
+                "jumlah_produk" : int(row['jumlah_produk']),
+            })
+
+        # ── RESPONSE ──────────────────────────────────────────────────────────
         return jsonify({
-            "status"                : "success",
-            "kesimpulan"            : status_prediksi,
-            "peluang_laku_persen"   : peluang_persen,
-            "alasan"                : alasan,
-            "konteks_harga"         : {
-                "median_pasar"      : round(median_pasar, 0),
-                "rasio_vs_pasar"    : round(fitur_bisnis['rasio_harga'], 2),
-                "segmen"            : ["Murah", "Menengah", "Premium"][fitur_bisnis['segmen_harga']],
-                "selisih_persen"    : round(selisih_persen, 1),
+            "status"              : "success",
+            "kesimpulan"          : status_prediksi,
+            "peluang_laku_persen" : peluang_persen,
+            "alasan"              : alasan,
+
+            "konteks_harga": {
+                "median_pasar"   : round(median_pasar, 0),
+                "rasio_vs_pasar" : round(fitur['rasio_harga'], 2),
+                "segmen"         : ["Murah", "Menengah", "Premium"][fitur['segmen_harga']],
+                "selisih_persen" : round(selisih_persen, 1),
             },
-            "kompetitor"            : kompetitor_list,
+
+            "kompetitor": kompetitor_list,
+
+            # ── FITUR BARU v3 ──────────────────────────────────────────────────
+            "produk_terpopuler": {
+                "label"   : f"Top 5 Produk Paling Digemari di '{kategori_input}"
+                            + (f" — {sub_kategori_input}'" if sub_kategori_input else "'"),
+                "deskripsi": (
+                    f"Produk-produk di bawah ini adalah yang paling diminati pembeli "
+                    f"berdasarkan kombinasi jumlah penjualan dan rating tertinggi "
+                    f"dalam kategori {kategori_input}"
+                    + (f" sub-kategori {sub_kategori_input}" if sub_kategori_input else "")
+                    + "."
+                ),
+                "produk": top_produk,
+            },
+
+            "insight_pasar": {
+                "narasi"                 : insight_pasar['narasi'],
+                "kategori_terpopuler"    : insight_pasar['kategori_terpopuler'],
+                "sub_kategori_terpopuler": insight_pasar['sub_kategori_terpopuler'],
+                "posisi_kategori_anda"   : insight_pasar['posisi_kategori_anda'],
+                "total_kategori"         : insight_pasar['total_kategori'],
+                "ranking_semua_kategori" : insight_pasar['ranking_kategori'],
+                "top5_sub_kategori_global": insight_pasar['top5_sub_kategori'],
+                "sub_kategori_dalam_kategori_ini": sub_ranking_list,
+            },
         })
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 if __name__ == '__main__':
     import os

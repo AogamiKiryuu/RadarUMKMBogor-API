@@ -65,11 +65,37 @@ Performa klasifikasi dasar pada *Holdout Test Set* meningkat (AUC-ROC: **0.9218*
 
 *(Catatan: Probabilitas tidak jatuh ke 0% adalah valid secara matematis dan bisnis, merepresentasikan peluang niche "ultra-premium" atau loyalitas merek tinggi, namun secara statistik memproyeksikan kesulitan (friction) yang jauh lebih berat dibandingkan harga median).*
 
+## 5. Studi Kasus Komparasi Model: Random Forest vs Logistic Regression
+
+Sebagai *sanity check* tambahan, pipeline kami menjalankan pemodelan ganda menggunakan **Logistic Regression (LR)** sebagai *baseline* komparatif terhadap **Random Forest (RF)**. Hasil uji pada *Holdout Test Set* (120 sampel) membedah karakteristik matematis yang bertolak belakang dari kedua algoritma.
+
+### A. Komparasi Metrik Utama (Kelas "Menarik" / Laku)
+- **Random Forest (RF):** Precision **89%** | Recall **81%** | F1-Score **85%** | Akurasi Total **86%**
+- **Logistic Regression (LR):** Precision **79%** | Recall **93%** | F1-Score **85%** | Akurasi Total **84%**
+
+### B. Analisis Matematis dan Sistematis
+
+**1. Sifat Linear (LR) vs Non-Linear (RF)**
+Logistic Regression bekerja dengan memodelkan *log-odds* sebagai kombinasi linear dari fitur:  
+$\ln\left(\frac{p}{1-p}\right) = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + ...$  
+Asumsi ini mengimplikasikan bahwa setiap kenaikan 1 satuan pada `rasio_harga` (misalnya) akan selalu menurunkan log-odds secara proporsional. 
+Sebaliknya, Random Forest menggunakan hierarki *decision rules* (Gini impurity / Entropy). RF dapat belajar bahwa: "Jika `rasio_harga` antara 1.0 hingga 2.5, probabilitas stabil laku 80%; tapi jika `rasio_harga` > 4.0, probabilitas seketika jatuh ke 10%". Pemisahan ruang fitur (feature space) secara diskrit ini jauh lebih cocok untuk dinamika harga pasar yang irasional.
+
+**2. *The Trade-off:* Recall Tinggi vs Precision Tinggi**
+LR mencatatkan **Recall 93%**. Secara matematis: $Recall = \frac{True\ Positive}{True\ Positive\ +\ False\ Negative}$. Ini berarti LR hampir tidak pernah melewatkan produk yang aslinya laku. Sayangnya, ini dicapai karena LR memiliki bias optimis (*over-predicting* kelas 1), yang terlihat dari **Precision-nya yang hanya 79%**. Secara matematis: $Precision = \frac{True\ Positive}{True\ Positive\ +\ False\ Positive}$. Ada 21% prediksi LR yang menyatakan produk akan laku, padahal aslinya gagal total di pasar.
+
+RF mencatatkan **Precision 89%** (hanya 11% *False Positive / False Alarm*). RF sedikit lebih *conservative* (Recall 81%), tetapi ketika RF memprediksi sebuah produk "Menarik", tebakannya sangat dapat diandalkan.
+
+### C. Justifikasi Keputusan Bisnis (Mengapa RF Menang)
+Dalam konteks "Aplikasi Radar UMKM", *cost of false positive* sangat tinggi. Jika aplikasi terlalu optimis (seperti LR) dan menyuruh UMKM menjual kripik Rp 50.000 dengan iming-iming "Pasti Laku", UMKM akan rugi materi dan kehilangan kepercayaan pada aplikasi. 
+Model yang lebih *conservative* dan presisi (seperti RF) memberikan rekomendasi yang jauh lebih realistis dan aman bagi pengambilan keputusan bisnis UMKM. Tingginya AUC-ROC (**0.92** pada RF vs **0.89** pada LR) mengunci kemenangan RF secara statistik dan manajerial.
+
 ---
 
-## 5. Pelajaran Penting (Key Takeaways for LLM Generation/Reasoning)
+## 6. Pelajaran Penting (Key Takeaways for LLM Generation/Reasoning)
 
 Bagi arsitek AI / LLM yang akan menstrukturkan proyek serupa di masa depan, ingat 3 prinsip ini:
 1. **The Model Is Not Automatically Smart:** `XGBoost` atau `Random Forest` tidak tahu arti Rp 100.000 vs Rp 10.000.000 kecuali dinormalisasi dengan *domain constraint*.
 2. **Context is Feature:** Masalah *logical mismatch* pada prediksi ML biasanya bukan diselesaikan dengan menukar algoritma (misal RF ke Neural Net), melainkan dengan merekonstruksi *feature representation*.
 3. **Stateless Prediction vs Stateful Context:** API ML seolah bersifat *stateless* (termasuk inputnya). Tetapi untuk memiliki kecerdasan kontekstual, ia harus *stateful* dengan merujuk pada distribusi pasar yang dibekukan (`frozen statistics`) saat waktu pelatihan.
+4. **Biz-Logic Trumps Raw Metrics:** Precision yang tinggi seringkali menyelamatkan kepercayaan *user* dibandingkan Recall yang dipaksakan tinggi dengan *"False Hope"*. Selaraskan matriks klasifikasi dengan *cost of error* di dunia nyata.
