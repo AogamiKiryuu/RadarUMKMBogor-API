@@ -1,7 +1,16 @@
-%% =========================================================
-%% DIAGRAM 1: ARSITEKTUR PIPELINE PEMROSESAN (Copy kode di bawah ini ke Draw.io)
-%% =========================================================
 graph TD
+    %% ==========================================
+    %% KELOMPOK STYLING (Warna dan Bentuk Node)
+    %% ==========================================
+    classDef root fill:#4f46e5,stroke:#312e81,stroke-width:2px,color:#fff;
+    classDef split fill:#0891b2,stroke:#155e75,stroke-width:2px,color:#fff;
+    classDef leaf1 fill:#16a34a,stroke:#14532d,stroke-width:2px,color:#fff;
+    classDef leaf0 fill:#dc2626,stroke:#7f1d1d,stroke-width:2px,color:#fff;
+    classDef core fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
+
+    %% ==========================================
+    %% BAGIAN 1: ARSITEKTUR PIPELINE PEMROSESAN
+    %% ==========================================
     A[Input Produk Baru] --> B{Fitur Teks: nama_produk}
     A --> C{Fitur Kategori & Sub-Kategori}
     A --> D{Fitur Harga & Statistik Pasar}
@@ -14,21 +23,15 @@ graph TD
     C1 --> E
     D1 --> E
 
-    E --> F[Random Forest Classifier v3]
-    F --> G{Voting Ensemble 100 Pohon}
-    G --> H[Output: Probabilitas Peluang Laku %]
+    E --> F[Random Forest Classifier v3]:::core
+    F --> G{Voting Ensemble 100 Pohon}:::core
 
+    %% PENGHUBUNG DARI ARSITEKTUR KE LOGIKA POHON
+    G -->|Isi dari salah satu pohon di dalam ensemble| RootNode
 
-%% =========================================================
-%% DIAGRAM 2: LOGIKA ATURAN (DECISION TREE RULES) (Copy kode di bawah ini ke kotak Draw.io yang berbeda)
-%% =========================================================
-graph TD
-    %% Styling Nodes
-    classDef root fill:#4f46e5,stroke:#312e81,stroke-width:2px,color:#fff;
-    classDef split fill:#0891b2,stroke:#155e75,stroke-width:2px,color:#fff;
-    classDef leaf1 fill:#16a34a,stroke:#14532d,stroke-width:2px,color:#fff;
-    classDef leaf0 fill:#dc2626,stroke:#7f1d1d,stroke-width:2px,color:#fff;
-
+    %% ==========================================
+    %% BAGIAN 2: LOGIKA ATURAN (DECISION TREE RULES)
+    %% ==========================================
     RootNode["Apakah popularity_score (Kompetitor)<br> >= 12.5? (Terjual & Rating Tinggi)"]:::root
     
     %% Root Level Split
