@@ -409,6 +409,9 @@ def predict():
                 probabilitas = min(probabilitas, 0.35) # Sulit laku -> Max 35%
             else:
                 probabilitas = min(probabilitas, 0.45) # Kurang menarik -> Max 45%
+        elif rasio < 0.3:
+            # Harga terlalu murah (< 30% dari median pasar, selisih < -70%)
+            probabilitas = min(probabilitas, 0.35) # Mencurigakan -> Max 35%
 
         peluang_persen = round(probabilitas * 100, 1)
 
@@ -445,6 +448,11 @@ def predict():
                 alasan_parts.append(
                     f"harga Anda {selisih_persen:.0f}% di atas median pasar (Rp{median_pasar:,.0f}) — "
                     f"pertimbangkan menyesuaikan harga atau menambah nilai tambah"
+                )
+            elif selisih_persen < -70:
+                alasan_parts.append(
+                    f"harga Anda {abs(selisih_persen):.0f}% di bawah median pasar (Rp{median_pasar:,.0f}) — "
+                    f"terlalu murah, berisiko dianggap mencurigakan atau merusak harga pasar"
                 )
             elif selisih_persen < -30:
                 alasan_parts.append(
