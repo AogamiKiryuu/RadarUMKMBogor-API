@@ -333,7 +333,7 @@ def predict():
         query_clean  = clean_text(nama_produk_input)
         query_vec    = tfidf_vectorizer.transform([query_clean])
         sim_scores   = cosine_similarity(query_vec, X_train_text_db).flatten()
-        top_indices  = sim_scores.argsort()[-5:][::-1]
+        top_indices  = sim_scores.argsort()[-6:][::-1]
 
         kompetitor_df      = df.iloc[top_indices].copy()
         top_sim_scores     = sim_scores[top_indices]
