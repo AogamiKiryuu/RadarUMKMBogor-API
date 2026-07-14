@@ -393,6 +393,23 @@ def predict():
         }])
 
         probabilitas   = rf_pipeline.predict_proba(input_df)[0][1]
+        
+        # ── GUARDRAIL: Koreksi Probabilitas untuk Harga Abnormal (Outliers) ──
+        # Berdasarkan bisnis rules: Jika harga terlalu jauh di atas rata-rata pasar,
+        # mustahil produk akan laku, terlepas dari apa prediksi murni Random Forest.
+        rasio = fitur['rasio_harga']
+        
+        if rasio > 1.3:
+            # Harga > 30% dari median pasar (seharusnya Kurang Menarik / < 0.5)
+            if rasio >= 5.0:
+                probabilitas = min(probabilitas, 0.02) # Harga gila (>5x lipat pasar) -> Max 2%
+            elif rasio >= 3.0:
+                probabilitas = min(probabilitas, 0.15) # Sangat sulit bersaing -> Max 15%
+            elif rasio >= 2.0:
+                probabilitas = min(probabilitas, 0.35) # Sulit laku -> Max 35%
+            else:
+                probabilitas = min(probabilitas, 0.45) # Kurang menarik -> Max 45%
+
         peluang_persen = round(probabilitas * 100, 1)
 
         if probabilitas >= 0.7:
