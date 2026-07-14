@@ -389,7 +389,7 @@ def predict():
             'rating'            : rating_est,
             'jumlah_log'        : jumlah_log,
             'revenue_proxy_log' : revenue_proxy_log,
-            'popularity_score'  : popularity_score,
+            'popularity_score_new': popularity_score,
         }])
 
         probabilitas   = rf_pipeline.predict_proba(input_df)[0][1]
