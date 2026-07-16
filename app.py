@@ -534,7 +534,6 @@ def predict():
             rating_est = 3.5
             jumlah_est = 30.0
 
-        # ── Validasi identitas Bogor ───────────────────────────────────────────
         if not mengandung_identitas_bogor and len(kompetitor_df) == 0:
             return jsonify({
                 "status" : "error",
@@ -553,6 +552,28 @@ def predict():
                     f"Produk '{nama_produk_input}' tidak mencantumkan identitas Bogor secara eksplisit. "
                     f"Tambahkan 'Khas Bogor', nama kawasan, atau produk ikonik pada nama produk Anda."
                 )
+            }), 400
+
+        # ── Blokir prediksi jika tidak ada produk serupa di dataset ───────────
+        if len(kompetitor_df) == 0:
+            return jsonify({
+                "status" : "error",
+                "message": (
+                    f"Mohon maaf, produk '{nama_produk_input}' belum tersedia dalam "
+                    f"database referensi kami yang dikumpulkan dari hasil scraping marketplace. "
+                    f"Tanpa data pembanding, sistem tidak dapat memberikan prediksi yang akurat dan andal."
+                ),
+                "saran": [
+                    "Coba gunakan nama produk yang lebih umum atau lebih spesifik.",
+                    f"Tambahkan kata kunci identitas Bogor yang dikenal, misalnya: "
+                    f"'Lapis Talas Bogor', 'Kopi Puncak', 'Keripik Bogor', 'Asinan Bogor'.",
+                    "Pastikan produk Anda memang dijual atau dikenal di marketplace Bogor.",
+                ],
+                "catatan": (
+                    "Database kami dikumpulkan dari hasil scraping marketplace. "
+                    "Kami terus memperbarui data secara berkala — produk Anda mungkin "
+                    "akan terdaftar di pembaruan berikutnya."
+                ),
             }), 400
 
         # ── Hitung Fitur Bisnis ────────────────────────────────────────────────
@@ -700,29 +721,11 @@ def predict():
                 "jumlah_produk" : int(row['jumlah_produk']),
             })
 
-        # ── Bangun Peringatan Dataset (jika produk tidak/kurang terwakili) ──
+        # ── Bangun Peringatan Dataset (jika produk kurang terwakili) ──────────
+        # Catatan: kasus kompetitor=0 sudah diblokir sebelum prediksi,
+        # sehingga di sini kompetitor_df dijamin > 0.
         peringatan_dataset = None
-        if len(kompetitor_df) == 0:
-            # Produk tidak ditemukan sama sekali di dataset
-            peringatan_dataset = {
-                "level"   : "tidak_ditemukan",
-                "judul"   : "⚠️ Produk Belum Ada di Dataset Kami",
-                "pesan"   : (
-                    f"Mohon maaf, produk '{nama_produk_input}' belum tersedia dalam "
-                    f"database referensi kami yang dikumpulkan dari hasil scraping marketplace. "
-                    f"Karena tidak ada data pembanding yang ditemukan, hasil prediksi ini "
-                    f"sepenuhnya didasarkan pada estimasi kategori '{kategori_input}' "
-                    f"dan posisi harga relatif terhadap pasar — bukan pada data penjualan "
-                    f"produk serupa secara langsung. Gunakan hasilnya sebagai gambaran umum, "
-                    f"bukan sebagai acuan pasti."
-                ),
-                "saran"   : (
-                    "Coba periksa kembali nama produk, atau tambahkan kata kunci yang lebih "
-                    "spesifik agar sistem dapat menemukan produk serupa di database."
-                ),
-                "akurasi_prediksi": "rendah",
-            }
-        elif max_sim_score < 0.15:
+        if max_sim_score < 0.15:
             # Produk ditemukan tapi kemiripannya sangat rendah
             peringatan_dataset = {
                 "level"   : "kemiripan_rendah",
