@@ -277,6 +277,168 @@ PRODUK_KATEGORI_MAP = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Mapping kata kunci produk → sub kategori yang SEHARUSNYA
+# Sub kategori valid berdasarkan dataset:
+#   Makanan      : Camilan & Snack | Kue & Roti | Lauk & Bahan Makanan | Makanan Tradisional
+#   Minuman      : Kopi | Teh | Minuman Tradisional
+#   Pakaian & Fashion : Atasan & Pakaian Kasual | Pakaian Tradisional
+#   Aksesoris & Souvenir : Aksesoris & Souvenir
+# ─────────────────────────────────────────────────────────────────────────────
+PRODUK_SUB_KATEGORI_MAP = {
+    # ── Camilan & Snack ──────────────────────────────────────────────────────
+    'keripik'      : 'Camilan & Snack',
+    'camilan'      : 'Camilan & Snack',
+    'snack'        : 'Camilan & Snack',
+    'teng teng'    : 'Camilan & Snack',
+    'enting enting': 'Camilan & Snack',
+    'renginang'    : 'Camilan & Snack',
+    'emping'       : 'Camilan & Snack',
+    'noga'         : 'Camilan & Snack',
+    'kacang'       : 'Camilan & Snack',
+    'biji'         : 'Camilan & Snack',
+    'crackers'     : 'Camilan & Snack',
+    'biskuit'      : 'Camilan & Snack',
+    'wafer'        : 'Camilan & Snack',
+    'ciki'         : 'Camilan & Snack',
+    'kerupuk'      : 'Camilan & Snack',
+
+    # ── Kue & Roti ───────────────────────────────────────────────────────────
+    'lapis talas'  : 'Kue & Roti',
+    'pie talas'    : 'Kue & Roti',
+    'pie bogor'    : 'Kue & Roti',
+    'roti unyil'   : 'Kue & Roti',
+    'lapis'        : 'Kue & Roti',
+    'kue'          : 'Kue & Roti',
+    'roti'         : 'Kue & Roti',
+    'bolu'         : 'Kue & Roti',
+    'brownies'     : 'Kue & Roti',
+    'donat'        : 'Kue & Roti',
+    'croissant'    : 'Kue & Roti',
+    'mochi'        : 'Kue & Roti',
+    'nastar'       : 'Kue & Roti',
+    'kastengel'    : 'Kue & Roti',
+    'putri salju'  : 'Kue & Roti',
+    'pancake'      : 'Kue & Roti',
+    'pastry'       : 'Kue & Roti',
+    'cake'         : 'Kue & Roti',
+    'tart'         : 'Kue & Roti',
+
+    # ── Lauk & Bahan Makanan ─────────────────────────────────────────────────
+    'abon'         : 'Lauk & Bahan Makanan',
+    'dendeng'      : 'Lauk & Bahan Makanan',
+    'gepuk'        : 'Lauk & Bahan Makanan',
+    'tauco'        : 'Lauk & Bahan Makanan',
+    'sambal'       : 'Lauk & Bahan Makanan',
+    'sambel'       : 'Lauk & Bahan Makanan',
+    'tempe'        : 'Lauk & Bahan Makanan',
+    'tahu'         : 'Lauk & Bahan Makanan',
+    'madu'         : 'Lauk & Bahan Makanan',
+    'jamur'        : 'Lauk & Bahan Makanan',
+    'susu'         : 'Lauk & Bahan Makanan',
+    'stroberi'     : 'Lauk & Bahan Makanan',
+    'strawberry'   : 'Lauk & Bahan Makanan',
+    'telur'        : 'Lauk & Bahan Makanan',
+    'ayam'         : 'Lauk & Bahan Makanan',
+    'daging'       : 'Lauk & Bahan Makanan',
+    'ikan'         : 'Lauk & Bahan Makanan',
+    'bumbu'        : 'Lauk & Bahan Makanan',
+    'saus'         : 'Lauk & Bahan Makanan',
+    'saos'         : 'Lauk & Bahan Makanan',
+    'kecap'        : 'Lauk & Bahan Makanan',
+    'pete'         : 'Lauk & Bahan Makanan',
+    'jengkol'      : 'Lauk & Bahan Makanan',
+
+    # ── Makanan Tradisional ──────────────────────────────────────────────────
+    'asinan'       : 'Makanan Tradisional',
+    'toge goreng'  : 'Makanan Tradisional',
+    'laksa'        : 'Makanan Tradisional',
+    'soto mie'     : 'Makanan Tradisional',
+    'batagor'      : 'Makanan Tradisional',
+    'dodol'        : 'Makanan Tradisional',
+    'manisan'      : 'Makanan Tradisional',
+    'ali agrem'    : 'Makanan Tradisional',
+    'cungkring'    : 'Makanan Tradisional',
+    'nasi'         : 'Makanan Tradisional',
+    'ketupat'      : 'Makanan Tradisional',
+    'opak'         : 'Makanan Tradisional',
+    'ongol'        : 'Makanan Tradisional',
+    'geplak'       : 'Makanan Tradisional',
+    'wajik'        : 'Makanan Tradisional',
+
+    # ── Kopi ─────────────────────────────────────────────────────────────────
+    'kopi'         : 'Kopi',
+    'espresso'     : 'Kopi',
+    'arabika'      : 'Kopi',
+    'robusta'      : 'Kopi',
+    'cold brew'    : 'Kopi',
+    'cappuccino'   : 'Kopi',
+    'latte'        : 'Kopi',
+
+    # ── Teh ──────────────────────────────────────────────────────────────────
+    'teh'          : 'Teh',
+    'green tea'    : 'Teh',
+    'matcha'       : 'Teh',
+    'chamomile'    : 'Teh',
+    'jasmine'      : 'Teh',
+
+    # ── Minuman Tradisional ──────────────────────────────────────────────────
+    'bandrek'      : 'Minuman Tradisional',
+    'bajigur'      : 'Minuman Tradisional',
+    'wedang'       : 'Minuman Tradisional',
+    'jus'          : 'Minuman Tradisional',
+    'sirup'        : 'Minuman Tradisional',
+    'minuman'      : 'Minuman Tradisional',
+    'es'           : 'Minuman Tradisional',
+    'sari'         : 'Minuman Tradisional',
+
+    # ── Atasan & Pakaian Kasual ──────────────────────────────────────────────
+    'baju'         : 'Atasan & Pakaian Kasual',
+    'kaos'         : 'Atasan & Pakaian Kasual',
+    'kemeja'       : 'Atasan & Pakaian Kasual',
+    'dress'        : 'Atasan & Pakaian Kasual',
+    'jaket'        : 'Atasan & Pakaian Kasual',
+    'blouse'       : 'Atasan & Pakaian Kasual',
+    'sweater'      : 'Atasan & Pakaian Kasual',
+    'hoodie'       : 'Atasan & Pakaian Kasual',
+    'celana'       : 'Atasan & Pakaian Kasual',
+    'rok'          : 'Atasan & Pakaian Kasual',
+    'legging'      : 'Atasan & Pakaian Kasual',
+    'kaus'         : 'Atasan & Pakaian Kasual',
+    'polo'         : 'Atasan & Pakaian Kasual',
+
+    # ── Pakaian Tradisional ──────────────────────────────────────────────────
+    'batik'        : 'Pakaian Tradisional',
+    'kebaya'       : 'Pakaian Tradisional',
+    'sarung'       : 'Pakaian Tradisional',
+    'kain'         : 'Pakaian Tradisional',
+    'songket'      : 'Pakaian Tradisional',
+    'tenun'        : 'Pakaian Tradisional',
+    'lurik'        : 'Pakaian Tradisional',
+    'beskap'       : 'Pakaian Tradisional',
+
+    # ── Aksesoris & Souvenir ─────────────────────────────────────────────────
+    'kujang'       : 'Aksesoris & Souvenir',
+    'uncal'        : 'Aksesoris & Souvenir',
+    'souvenir'     : 'Aksesoris & Souvenir',
+    'gantungan kunci': 'Aksesoris & Souvenir',
+    'magnet kulkas': 'Aksesoris & Souvenir',
+    'topi'         : 'Aksesoris & Souvenir',
+    'tas'          : 'Aksesoris & Souvenir',
+    'dompet'       : 'Aksesoris & Souvenir',
+    'gelang'       : 'Aksesoris & Souvenir',
+    'bros'         : 'Aksesoris & Souvenir',
+    'miniatur'     : 'Aksesoris & Souvenir',
+    'pin'          : 'Aksesoris & Souvenir',
+    'kalung'       : 'Aksesoris & Souvenir',
+    'cincin'       : 'Aksesoris & Souvenir',
+    'anting'       : 'Aksesoris & Souvenir',
+    'hiasan'       : 'Aksesoris & Souvenir',
+    'boneka'       : 'Aksesoris & Souvenir',
+    'pigura'       : 'Aksesoris & Souvenir',
+    'payung'       : 'Aksesoris & Souvenir',
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 8. ENDPOINTS
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -326,6 +488,26 @@ def predict():
                 )
             }), 400
 
+        # ── VALIDASI 1b: Cek mismatch sub kategori ────────────────────────────
+        sub_terdeteksi        = None
+        sub_kategori_seharusnya = None
+        for kata_kunci in sorted(PRODUK_SUB_KATEGORI_MAP.keys(), key=len, reverse=True):
+            if kata_kunci in nama_lower:
+                sub_terdeteksi          = kata_kunci
+                sub_kategori_seharusnya = PRODUK_SUB_KATEGORI_MAP[kata_kunci]
+                break
+
+        if sub_kategori_seharusnya and sub_kategori_input and sub_kategori_input != sub_kategori_seharusnya:
+            return jsonify({
+                "status" : "error",
+                "message": (
+                    f"Sub Kategori tidak sesuai untuk produk '{nama_produk_input}'. "
+                    f"Kata kunci '{sub_terdeteksi}' mengindikasikan sub kategori "
+                    f"'{sub_kategori_seharusnya}', bukan '{sub_kategori_input}'. "
+                    f"Silakan pilih sub kategori yang tepat."
+                )
+            }), 400
+
         # ── VALIDASI 2: Identitas Bogor ────────────────────────────────────────
         mengandung_identitas_bogor = any(kata in nama_lower for kata in KATA_KUNCI_WILAYAH_BOGOR)
 
@@ -340,6 +522,9 @@ def predict():
         kompetitor_mask    = top_sim_scores > 0.05
         kompetitor_df      = kompetitor_df[kompetitor_mask]
         filtered_sim       = top_sim_scores[kompetitor_mask]
+
+        # ── Hitung skor kemiripan tertinggi untuk deteksi coverage dataset ───
+        max_sim_score = float(top_sim_scores[0]) if len(top_sim_scores) > 0 else 0.0
 
         # ── Estimasi Rating & Jumlah dari Kompetitor ─────────────────────────
         if len(kompetitor_df) > 0:
@@ -515,12 +700,67 @@ def predict():
                 "jumlah_produk" : int(row['jumlah_produk']),
             })
 
+        # ── Bangun Peringatan Dataset (jika produk tidak/kurang terwakili) ──
+        peringatan_dataset = None
+        if len(kompetitor_df) == 0:
+            # Produk tidak ditemukan sama sekali di dataset
+            peringatan_dataset = {
+                "level"   : "tidak_ditemukan",
+                "judul"   : "⚠️ Produk Belum Ada di Dataset Kami",
+                "pesan"   : (
+                    f"Mohon maaf, produk '{nama_produk_input}' belum tersedia dalam "
+                    f"database referensi kami yang dikumpulkan dari hasil scraping marketplace. "
+                    f"Karena tidak ada data pembanding yang ditemukan, hasil prediksi ini "
+                    f"sepenuhnya didasarkan pada estimasi kategori '{kategori_input}' "
+                    f"dan posisi harga relatif terhadap pasar — bukan pada data penjualan "
+                    f"produk serupa secara langsung. Gunakan hasilnya sebagai gambaran umum, "
+                    f"bukan sebagai acuan pasti."
+                ),
+                "saran"   : (
+                    "Coba periksa kembali nama produk, atau tambahkan kata kunci yang lebih "
+                    "spesifik agar sistem dapat menemukan produk serupa di database."
+                ),
+                "akurasi_prediksi": "rendah",
+            }
+        elif max_sim_score < 0.15:
+            # Produk ditemukan tapi kemiripannya sangat rendah
+            peringatan_dataset = {
+                "level"   : "kemiripan_rendah",
+                "judul"   : "ℹ️ Data Referensi Produk Terbatas",
+                "pesan"   : (
+                    f"Produk '{nama_produk_input}' belum banyak terwakili dalam database "
+                    f"referensi kami (kemiripan produk serupa: {max_sim_score*100:.0f}%). "
+                    f"Data kami dikumpulkan dari scraping marketplace, sehingga tidak semua "
+                    f"produk UMKM Bogor tercakup. Hasil prediksi menggunakan data produk "
+                    f"terdekat yang tersedia sebagai estimasi."
+                ),
+                "saran"   : (
+                    "Hasil prediksi tetap dapat dijadikan referensi, namun disarankan "
+                    "untuk membandingkan dengan kondisi pasar aktual secara langsung."
+                ),
+                "akurasi_prediksi": "sedang",
+            }
+        elif max_sim_score < 0.35:
+            # Kemiripan sedang — perlu notifikasi ringan
+            peringatan_dataset = {
+                "level"   : "kemiripan_sedang",
+                "judul"   : "📊 Prediksi Berbasis Data Produk Serupa",
+                "pesan"   : (
+                    f"Produk '{nama_produk_input}' tidak ditemukan secara persis di database kami, "
+                    f"namun terdapat {len(kompetitor_df)} produk serupa dengan kemiripan "
+                    f"{max_sim_score*100:.0f}% yang digunakan sebagai acuan prediksi."
+                ),
+                "saran"   : None,
+                "akurasi_prediksi": "cukup_baik",
+            }
+
         # ── RESPONSE ──────────────────────────────────────────────────────────
         return jsonify({
             "status"              : "success",
             "kesimpulan"          : status_prediksi,
             "peluang_laku_persen" : peluang_persen,
             "alasan"              : alasan,
+            "peringatan_dataset"  : peringatan_dataset,
 
             "konteks_harga": {
                 "median_pasar"   : round(median_pasar, 0),
