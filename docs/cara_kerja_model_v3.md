@@ -3,7 +3,7 @@
 Dokumen ini menjelaskan secara rinci seluruh alur kerja model Machine Learning v3 pada sistem **RadarUMKM Bogor**, mulai dari tahap persiapan data (training) hingga tahap saat model berjalan di server (inference).
 
 > **Versi Dokumen:** v3 — Diperbarui 16 Juli 2026  
-> **Perubahan terbaru:** Validasi sub kategori, peringatan dataset, guardrail harga abnormal.
+> **Perubahan terbaru:** Blokir prediksi jika produk tidak ditemukan di dataset, validasi sub kategori, guardrail harga abnormal.
 
 ---
 
@@ -96,17 +96,23 @@ Sebelum memprediksi peluang, sistem mencari produk serupa di database untuk digu
 
 Jika tidak ada kompetitor, sistem menggunakan nilai default: `rating_est = 3.5`, `jumlah_est = 30`.
 
-### C. Deteksi Cakupan Dataset (Peringatan Dataset)
-Karena data bersumber dari scraping, tidak semua produk UMKM Bogor terwakili. Sistem mengevaluasi `max_sim_score` (skor kemiripan tertinggi) untuk menentukan level peringatan:
+### C. Deteksi Cakupan Dataset & Blokir Prediksi
+Karena data bersumber dari scraping, tidak semua produk UMKM Bogor terwakili. Setelah Cosine Similarity dijalankan, sistem mengevaluasi hasilnya:
+
+**Jika tidak ada kompetitor ditemukan (`kompetitor_df` kosong):**
+- Prediksi **langsung diblokir** → Error 400 dikembalikan ke frontend
+- Response berisi pesan maaf, array saran perbaikan nama produk, dan catatan bahwa database diperbarui berkala
+- Frontend menampilkan panel **"Prediksi Gagal"**
+
+**Jika kompetitor ditemukan**, sistem mengevaluasi `max_sim_score` (skor kemiripan tertinggi) untuk menentukan level peringatan yang disertakan di response:
 
 | Level | Kondisi | Keterangan |
 |---|---|---|
-| `tidak_ditemukan` | Tidak ada kompetitor (sim = 0) | Prediksi sepenuhnya berbasis estimasi kategori & harga |
-| `kemiripan_rendah` | max_sim < 15% | Data sangat terbatas, hasil sebagai gambaran umum |
+| `kemiripan_rendah` | max_sim < 15% | Data sangat terbatas, disarankan cek pasar aktual |
 | `kemiripan_sedang` | max_sim 15–35% | Prediksi berbasis produk serupa (bukan persis sama) |
 | `null` | max_sim ≥ 35% | Produk terwakili dengan baik — tidak ada peringatan |
 
-Peringatan ini **tidak memblokir prediksi**, hanya ditambahkan di field `peringatan_dataset` pada response.
+Pada level `kemiripan_rendah` dan `kemiripan_sedang`, prediksi **tetap berjalan** namun field `peringatan_dataset` di response akan berisi informasi peringatan.
 
 ### D. Kalkulasi Fitur dan Prediksi Random Forest
 1. Sistem menghitung fitur harga relatif (`rasio_harga`, `zscore_harga`, `segmen_harga`, `log_harga`) dari `market_stats_v3.csv` yang di-cache di memori saat startup.
@@ -148,13 +154,16 @@ Di akhir proses, sistem mengambil data tambahan (di-cache saat startup):
 Input User (nama, kategori, sub_kategori, harga)
     │
     ▼
-[Validasi 4 Lapis] ──── Gagal ──→ Error 400
+[Validasi 4 Lapis] ─── Gagal ──→ Error 400
     │ Lolos
     ▼
 [Cosine Similarity → Cari Kompetitor]
     │
+    ├─ Kompetitor = 0? ─── YA ──→ Error 400 "Prediksi Gagal"
+    │                              (pesan maaf + saran + catatan DB)
+    │ Kompetitor > 0
     ▼
-[Deteksi Coverage Dataset → peringatan_dataset]
+[Evaluasi max_sim_score → peringatan_dataset]
     │
     ▼
 [Hitung Fitur Harga Relatif]
@@ -183,7 +192,7 @@ Response sukses mengandung:
 | `peluang_laku_persen` | Persentase peluang produk laku (0–100) |
 | `kesimpulan` | Label dan status prediksi |
 | `alasan` | Array kalimat alasan bisnis |
-| `peringatan_dataset` | Peringatan jika produk tidak/kurang terwakili di dataset (`null` jika aman) |
+| `peringatan_dataset` | Peringatan jika produk kurang terwakili di dataset (`null` jika aman). Level: `kemiripan_rendah` atau `kemiripan_sedang` |
 | `konteks_harga` | Median pasar, segmen, selisih harga |
 | `kompetitor` | Daftar produk serupa yang ditemukan |
 | `produk_terpopuler` | Top 5 produk paling digemari di kategori/sub-kategori |

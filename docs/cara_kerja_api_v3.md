@@ -157,11 +157,10 @@ Request akan ditolak (`400`) jika salah satu kondisi berikut terpenuhi:
 
 ### Field `peringatan_dataset`
 
-Field ini memberitahu frontend bahwa produk belum/kurang terwakili di dataset scraping kami. **Prediksi tetap berjalan**, namun akurasi mungkin lebih rendah.
+Field ini hanya muncul pada response **sukses** (produk ditemukan di database) ketika kemiripannya masih kurang optimal. **Prediksi tetap berjalan**, namun akurasi mungkin lebih rendah.
 
 | Level | Kondisi | `akurasi_prediksi` |
 |---|---|---|
-| `tidak_ditemukan` | Tidak ada produk serupa di database | `rendah` |
 | `kemiripan_rendah` | Kemiripan tertinggi < 15% | `sedang` |
 | `kemiripan_sedang` | Kemiripan 15–35% | `cukup_baik` |
 | `null` | Kemiripan ≥ 35% — produk terwakili baik | *(tidak ada peringatan)* |
@@ -169,11 +168,11 @@ Field ini memberitahu frontend bahwa produk belum/kurang terwakili di dataset sc
 **Contoh `peringatan_dataset` tidak null:**
 ```json
 "peringatan_dataset": {
-  "level": "tidak_ditemukan",
-  "judul": "⚠️ Produk Belum Ada di Dataset Kami",
-  "pesan": "Mohon maaf, produk 'Kerajinan Bambu Khas Bogor' belum tersedia dalam database referensi kami yang dikumpulkan dari hasil scraping marketplace...",
-  "saran": "Coba periksa kembali nama produk, atau tambahkan kata kunci yang lebih spesifik...",
-  "akurasi_prediksi": "rendah"
+  "level": "kemiripan_rendah",
+  "judul": "ℹ️ Data Referensi Produk Terbatas",
+  "pesan": "Produk '...' belum banyak terwakili dalam database referensi kami (kemiripan produk serupa: 8%)...",
+  "saran": "Hasil prediksi tetap dapat dijadikan referensi, namun disarankan untuk membandingkan dengan kondisi pasar aktual.",
+  "akurasi_prediksi": "sedang"
 }
 ```
 
@@ -194,6 +193,20 @@ Field ini memberitahu frontend bahwa produk belum/kurang terwakili di dataset sc
 {
   "status": "error",
   "message": "Sub Kategori tidak sesuai untuk produk 'Bolu Talas Bogor'. Kata kunci 'bolu' mengindikasikan sub kategori 'Kue & Roti', bukan 'Lauk & Bahan Makanan'. Silakan pilih sub kategori yang tepat."
+}
+```
+
+**Error produk tidak ditemukan di database** — ketika tidak ada produk serupa yang terdeteksi:
+```json
+{
+  "status": "error",
+  "message": "Mohon maaf, produk 'Kerajinan Bambu Khas Bogor' belum tersedia dalam database referensi kami yang dikumpulkan dari hasil scraping marketplace. Tanpa data pembanding, sistem tidak dapat memberikan prediksi yang akurat dan andal.",
+  "saran": [
+    "Coba gunakan nama produk yang lebih umum atau lebih spesifik.",
+    "Tambahkan kata kunci identitas Bogor yang dikenal, misalnya: 'Lapis Talas Bogor', 'Kopi Puncak', 'Keripik Bogor', 'Asinan Bogor'.",
+    "Pastikan produk Anda memang dijual atau dikenal di marketplace Bogor."
+  ],
+  "catatan": "Database kami dikumpulkan dari hasil scraping marketplace. Kami terus memperbarui data secara berkala — produk Anda mungkin akan terdaftar di pembaruan berikutnya."
 }
 ```
 
@@ -231,6 +244,5 @@ Random Forest kadang menghasilkan probabilitas yang tidak realistis secara bisni
 Data dikumpulkan melalui scraping marketplace sehingga:
 - Tidak semua produk UMKM Bogor terwakili
 - Produk baru atau produk yang tidak dijual online mungkin tidak terdeteksi
-- Hasil prediksi untuk produk yang tidak ada di dataset menggunakan estimasi berbasis kategori dan harga
-
-Frontend disarankan untuk menampilkan `peringatan_dataset` sebagai banner/card peringatan agar user memahami keterbatasan ini.
+- **Jika produk tidak ditemukan sama sekali di database, prediksi diblokir** — frontend menampilkan panel "Prediksi Gagal" dengan pesan maaf, saran perbaikan, dan catatan pembaruan database
+- Jika produk ditemukan namun kemiripannya rendah, prediksi tetap berjalan dengan `peringatan_dataset` yang berisi informasi keterbatasan akurasi
