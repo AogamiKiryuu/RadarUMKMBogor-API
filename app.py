@@ -1,4 +1,9 @@
+import os
 import re
+import sys
+
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 import joblib
 import numpy as np
@@ -10,47 +15,18 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
 CORS(app)  # Mengizinkan Nuxt 3 untuk mengambil data dari Flask
-CORS(app)
 
-print("Memuat Model dan Dataset... Mohon tunggu ⏳")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. Load Model & Dataset
-# ─────────────────────────────────────────────────────────────────────────────
-rf_pipeline = joblib.load("model_umkm_bogor_v2.joblib")
-df = pd.read_csv("dataset_umkm_bogor.csv")
-
-# Bersihkan nilai 0 pada jumlah_terjual & rating (sesuai retrain_model.py v3)
-# Nilai 0 menyebabkan distribusi condong ke nol → diganti rata-rata non-zero
-_mean_terjual_nz = df.loc[df["jumlah_terjual"] > 0, "jumlah_terjual"].mean()
-_mean_rating_nz = df.loc[df["rating"] > 0, "rating"].mean()
-df["jumlah_terjual"] = df["jumlah_terjual"].replace(0, round(_mean_terjual_nz, 4))
-df["rating"] = df["rating"].replace(0, round(_mean_rating_nz, 4))
-print(
-    f"   ✅ Nilai 0 dibersihkan — rata-rata terjual: {_mean_terjual_nz:.2f}, rata-rata rating: {_mean_rating_nz:.2f}"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. Load statistik pasar & tren (dihasilkan saat retrain)
-# ─────────────────────────────────────────────────────────────────────────────
-market_stats = pd.read_csv("market_stats_per_kategori.csv").set_index("kategori")
-tren_per_kategori = pd.read_csv("tren_per_kategori.csv")
-tren_per_sub = pd.read_csv("tren_per_sub_kategori.csv")
-print(f"   ✅ Statistik pasar & tren dimuat.")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. Setup Sastrawi Stemmer
-# ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 # 1. Load Model, Dataset & Market Stats
 # ─────────────────────────────────────────────────────────────────────────────
-rf_pipeline  = joblib.load('models/model_umkm_bogor_v3.joblib')
+rf_pipeline  = joblib.load('models/model_umkm_bogor_v4.joblib')
 df           = pd.read_csv('data/processed/dataset_preprocessed.csv')
-market_stats = pd.read_csv('data/market_stats_v3.csv').set_index('kategori')
+market_stats = pd.read_csv('data/market_stats_v4.csv').set_index('kategori')
+tren_per_kategori = pd.read_csv('tren_per_kategori.csv')
+tren_per_sub = pd.read_csv('tren_per_sub_kategori.csv')
 
 # Market stats per sub_kategori (untuk fitur Paling Digemari)
 try:
-    market_stats_sub = pd.read_csv('data/market_stats_sub_kategori_v3.csv')
+    market_stats_sub = pd.read_csv('data/market_stats_sub_kategori_v4.csv')
 except FileNotFoundError:
     market_stats_sub = None
 
@@ -308,15 +284,19 @@ def get_insight_keseluruhan(kategori_input: str = None) -> dict:
             "avg_rating"   : round(float(row['avg_rating']), 2),
         })
 
-    selisih_persen = ((harga - median_kat) / max(median_kat, 1)) * 100
-
     return {
-        "rasio_harga": rasio,
-        "zscore_harga": zscore,
-        "log_harga": log_h,
-        "segmen_harga": segmen,
-        "median_pasar": median_kat,
-        "selisih_persen": selisih_persen,
+        "narasi": (
+            f"Secara keseluruhan, kategori paling diminati saat ini adalah '{top_kategori['kategori']}' "
+            f"dengan total popularitas {top_kategori['total_popularity']:.1f}. "
+            f"Kategori '{kategori_input}' berada di posisi {posisi_kategori if posisi_kategori is not None else '-'} "
+            f"dari {len(ranking_list)} kategori."
+        ),
+        "kategori_terpopuler": str(top_kategori['kategori']),
+        "sub_kategori_terpopuler": str(top_sub['sub_kategori']),
+        "posisi_kategori_anda": posisi_kategori,
+        "total_kategori": len(ranking_list),
+        "ranking_kategori": ranking_list,
+        "top5_sub_kategori": top_sub_list,
     }
 
 
@@ -1242,25 +1222,13 @@ def health():
     return jsonify(
         {
             "status": "ok",
-            "model": "model_umkm_bogor_v2.joblib",
+            "model": "model_umkm_bogor_v4.joblib",
             "dataset_rows": len(df),
             "kategori_tren": [str(k) for k in tren_per_kategori["kategori"].tolist()],
             "top_kategori": str(top_kat.get("kategori", "-")),
-            "message": "Flask ML API v3 siap digunakan ✅ (skor gabungan, tren keseluruhan aktif)",
+            "message": "Flask ML API v4 siap digunakan ✅ (Model Fair Per Kategori & Bebas Leakage)",
         }
     )
-
-
-@app.route("/predict", methods=["POST"])
-    return jsonify({
-        "status"       : "ok",
-        "model"        : "model_umkm_bogor_v3.joblib",
-        "dataset_rows" : len(df),
-        "versi"        : "v3",
-        "fitur_baru"   : ["jumlah_log", "revenue_proxy_log", "popularity_score", "produk_terpopuler"],
-        "message"      : "Flask ML API v3 siap ✅ (fitur Paling Digemari aktif)"
-    })
-
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -1486,26 +1454,7 @@ def predict():
                 }
             ), 400
 
-        # ── PREDIKSI Machine Learning ──────────────────────────────────────
-        input_df = pd.DataFrame(
-            [
-                {
-                    "nama_produk_clean": query_clean,
-                    "kategori": kategori_input,
-                    "sub_kategori": sub_kategori_input,
-                    "rasio_harga": fitur_bisnis["rasio_harga"],
-                    "zscore_harga": fitur_bisnis["zscore_harga"],
-                    "log_harga": fitur_bisnis["log_harga"],
-                    "segmen_harga": fitur_bisnis["segmen_harga"],
-                    "rating": rating_input,
-                }
-            ]
-        )
-        jumlah_log        = float(np.log1p(jumlah_est))
-        revenue_proxy_log = float(np.log1p(harga_input * jumlah_est))
-        popularity_score  = float(rating_est * np.log1p(jumlah_est))
-
-        # ── Prediksi ML ───────────────────────────────────────────────────────
+        # ── PREDIKSI Machine Learning v4 (Bebas Target Leakage) ────────────
         input_df = pd.DataFrame([{
             'nama_produk_clean' : query_clean,
             'kategori'          : kategori_input,
@@ -1515,14 +1464,9 @@ def predict():
             'log_harga'         : fitur['log_harga'],
             'segmen_harga'      : fitur['segmen_harga'],
             'rating'            : rating_est,
-            'jumlah_log'        : jumlah_log,
-            'revenue_proxy_log' : revenue_proxy_log,
-            'popularity_score_new': popularity_score,
         }])
 
-        probabilitas = rf_pipeline.predict_proba(input_df)[0][1]
-        peluang_persen = round(probabilitas * 100, 1)
-        probabilitas   = rf_pipeline.predict_proba(input_df)[0][1]
+        probabilitas = float(rf_pipeline.predict_proba(input_df)[0][1])
         
         # ── GUARDRAIL: Koreksi Probabilitas untuk Harga Abnormal (Outliers) ──
         # Berdasarkan bisnis rules: Jika harga terlalu jauh di atas rata-rata pasar,
@@ -1733,43 +1677,6 @@ def predict():
                 }
             )
 
-        # ── BANGUN DATA TREN KESELURUHAN ───────────────────────────────────
-        tren_output = bangun_tren_output(kategori_input, sub_kategori_input)
-            kompetitor_list.append({
-                "nama"             : row['nama_produk'],
-                "harga"            : float(row['harga_produk']),
-                "rating"           : float(row['rating']),
-                "terjual"          : float(row['jumlah_terjual']),
-                "marketplace"      : str(row.get('marketplace', '')),
-                "url_produk"       : str(row.get('url_produk', '')),
-                "kemiripan_persen" : round(float(filtered_sim[idx]) * 100, 1),
-            })
-
-        # ── KIRIM RESPONSE ─────────────────────────────────────────────────
-        return jsonify(
-            {
-                "status": "success",
-                "kesimpulan": status_prediksi,
-                "peluang_laku_persen": peluang_persen,
-                "alasan": alasan,
-                # Konteks harga relatif terhadap pasar
-                "konteks_harga": {
-                    "harga_input": harga_input,
-                    "median_pasar": round(median_pasar, 0),
-                    "rasio_vs_pasar": round(fitur_bisnis["rasio_harga"], 2),
-                    # "Premium" diubah menjadi "Mahal" sesuai masukan dosen
-                    "segmen": ["Murah", "Menengah", "Mahal"][
-                        fitur_bisnis["segmen_harga"]
-                    ],
-                    "selisih_persen": round(selisih_persen, 1),
-                },
-                # Kompetitor produk serupa
-                "kompetitor": kompetitor_list,
-                # Tren keseluruhan — inti perbandingan antar kategori & sub-kategori
-                # Menjawab pertanyaan dosen: "Mana yang paling digemari secara keseluruhan?"
-                "tren_keseluruhan": tren_output,
-            }
-        )
         # ── Produk Paling Digemari di Kategori/Sub-Kategori ini ──────────────
         top_produk = get_top_produk(kategori_input, sub_kategori_input, top_n=5)
 

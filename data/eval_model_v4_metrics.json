@@ -1,0 +1,36 @@
+{
+  "model_version": "v4",
+  "description": "Random Forest dengan Labeling Per Kategori & Bebas Target Leakage",
+  "metrics": {
+    "accuracy": 0.6748,
+    "f1_score": 0.6599,
+    "roc_auc": 0.7242,
+    "cv_accuracy_mean": 0.6273,
+    "cv_accuracy_std": 0.0213
+  },
+  "features": {
+    "text": "nama_produk_clean",
+    "categorical": [
+      "kategori",
+      "sub_kategori"
+    ],
+    "numeric": [
+      "rasio_harga",
+      "zscore_harga",
+      "log_harga",
+      "segmen_harga",
+      "rating"
+    ],
+    "total_input_columns": 8
+  },
+  "confusion_matrix": [
+    [
+      74,
+      29
+    ],
+    [
+      38,
+      65
+    ]
+  ]
+}
