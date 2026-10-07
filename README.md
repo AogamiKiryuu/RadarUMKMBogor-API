@@ -1,154 +1,137 @@
 # RadarUMKM Bogor — API
 
-> Flask ML API untuk prediksi daya tarik produk UMKM Bogor **+ fitur Paling Digemari**.
+> REST ML Microservice berbasis Flask untuk Prediksi Daya Tarik Produk UMKM Bogor, Analisis Posisi Harga Pasar, Pencarian Kompetitor, dan Pemetaan Tren Komoditas Marketplace.
 
-🚀 **Live:** [radarumkmbogor-api.onrender.com](https://radarumkmbogor-api.onrender.com)
-
----
-
-## Deskripsi
-
-REST API berbasis Flask yang menyajikan model Machine Learning (**Random Forest v3**) untuk memprediksi apakah suatu produk berpotensi **menarik** atau **kurang menarik** di marketplace, sekaligus menampilkan **produk paling digemari** dan **insight pasar keseluruhan** berdasarkan kategori dan sub-kategori yang diinputkan.
-
-Model dilatih dari dataset **1.027 produk** UMKM Kota & Kabupaten Bogor yang dikumpulkan dari Tokopedia, Shopee, dan Lazada.
+🚀 **Production Live:** [radarumkmbogor-api.onrender.com](https://radarumkmbogor-api.onrender.com)  
+📦 **Model Aktif:** `models/model_umkm_bogor_v4.joblib` (Random Forest Classifier v4 — Fair Sektoral & Bebas Target Leakage)
 
 ---
 
-## Deployment
+## 📌 Ringkasan Sistem
 
-Dihosting di **Render** (Free tier — cold start ±30 detik jika tidak aktif).
+Layanan ini menyajikan mesin inferensi Machine Learning dan Text Mining untuk mendukung pengambilan keputusan bisnis pelaku UMKM di Kota dan Kabupaten Bogor:
+1. **Prediksi Peluang Laku (Random Forest v4):** Mengestimasi probabilitas daya tarik produk berdasarkan teks nama, kategori/sub-kategori, dan profil harga relatif pasar.
+2. **Pencarian Kompetitor Serupa (TF-IDF + Cosine Similarity):** Mengidentifikasi top-6 produk pesaing terdekat di pasar marketplace untuk mengatasi *cold-start problem* produk baru.
+3. **Business Rules & Guardrails:** Validasi harga deterministik dan koreksi probabilitas jika rasio harga berada jauh di luar kewajaran pasar kategori.
+4. **Insight Tren Pasar & Produk Terpopuler:** Menyajikan peringkat popularitas produk dan urutan minat konsumen lintas kategori.
 
-| Endpoint | URL |
+Model dilatih dari **1.027 produk** UMKM Bogor yang dikumpulkan melalui *web scraping* dari Tokopedia, Shopee, dan Lazada (kondisi 100% bersih, tanpa duplikasi dan tanpa missing values).
+
+---
+
+## 🚀 Deployment
+
+Dihosting di **Render** sebagai Python Web Service (Gunicorn / Flask):
+
+| Parameter | Keterangan |
 |---|---|
-| Base URL | `https://radarumkmbogor-api.onrender.com` |
-| Health Check | `https://radarumkmbogor-api.onrender.com/health` |
-| Predict | `https://radarumkmbogor-api.onrender.com/predict` |
+| **Base URL** | `https://radarumkmbogor-api.onrender.com` |
+| **Health Check** | `GET /health` |
+| **Inference Endpoint** | `POST /predict` |
+| **Spesifikasi Runtime** | Python 3.12 / 3.13, Scikit-Learn 1.6+, PySastrawi |
+
+> ℹ️ *Catatan Free Tier Render:* Jika server tidak menerima request dalam jangka waktu tertentu, server akan masuk ke mode *idle*. Request pertama membutuhkan waktu *cold start* sekitar 30 detik.
 
 ---
 
-## API Endpoints
+## 📡 API Endpoints
 
-### GET /health
-
-Cek status server, model, dan versi.
+### 1. GET `/health`
+Pemeriksaan status server, nama model yang aktif, jumlah baris dataset, dan kategori tren.
 
 ```bash
 curl https://radarumkmbogor-api.onrender.com/health
 ```
 
-Response:
-
+#### Response (HTTP 200 OK):
 ```json
 {
   "status": "ok",
-  "model": "model_umkm_bogor_v3.joblib",
+  "model": "model_umkm_bogor_v4.joblib",
   "dataset_rows": 1027,
-  "versi": "v3",
-  "fitur_baru": ["jumlah_log", "revenue_proxy_log", "popularity_score", "produk_terpopuler"],
-  "message": "Flask ML API v3 siap ✅"
+  "kategori_tren": [
+    "Makanan",
+    "Pakaian & Fashion",
+    "Minuman",
+    "Aksesoris & Souvenir"
+  ],
+  "top_kategori": "Makanan",
+  "message": "Flask ML API v4 siap digunakan ✅ (Model Fair Per Kategori & Bebas Leakage)"
 }
 ```
 
 ---
 
-### POST /predict
-
-Prediksi daya tarik produk + insight pasar + produk paling digemari.
+### 2. POST `/predict`
+Endpoint utama untuk mengeksekusi inferensi daya tarik produk baru, pencarian kompetitor, dan analisis harga.
 
 ```bash
 curl -X POST https://radarumkmbogor-api.onrender.com/predict \
   -H "Content-Type: application/json" \
   -d '{
-    "nama_produk"  : "Lapis Talas Bogor Original",
+    "nama_produk"  : "Lapis Talas Bogor Sangkuriang Original Keju",
     "kategori"     : "Makanan",
     "sub_kategori" : "Kue & Roti",
-    "harga_produk" : 55000
+    "harga_produk" : 45000
   }'
 ```
 
-#### Request Body
+#### Request Payload:
+| Field | Tipe | Wajib | Keterangan & Validasi |
+|---|---|:---:|---|
+| `nama_produk` | String | ✅ | Nama produk (harus memuat identitas Bogor / padanan lokal) |
+| `kategori` | String | ✅ | Salah satu dari 4 kategori: `Makanan`, `Minuman`, `Pakaian & Fashion`, `Aksesoris & Souvenir` |
+| `sub_kategori` | String | ✅ | Sub-kategori yang sesuai dengan kategori induk (lihat daftar di bawah) |
+| `harga_produk` | Number | ✅ | Harga jual dalam Rupiah (harus bertanda positif $> 0$) |
 
-| Field | Tipe | Wajib | Keterangan |
-|---|---|---|---|
-| `nama_produk` | string | ✅ | Nama lengkap produk (harus mengandung identitas Bogor) |
-| `kategori` | string | ✅ | Salah satu: `Makanan`, `Minuman`, `Pakaian & Fashion`, `Aksesoris & Souvenir` |
-| `sub_kategori` | string | ✅ | Sub-kategori produk (lihat daftar di bawah) |
-| `harga_produk` | integer | ✅ | Harga dalam rupiah (harus > 0) |
+#### Daftar Kategori & Sub-Kategori Valid:
+- **Makanan:** `Camilan & Snack`, `Kue & Roti`, `Lauk & Bahan Makanan`, `Makanan Tradisional`
+- **Minuman:** `Kopi`, `Teh`, `Minuman Tradisional`
+- **Pakaian & Fashion:** `Atasan & Pakaian Kasual`, `Pakaian Tradisional`, `Pakaian Anak`
+- **Aksesoris & Souvenir:** `Aksesoris & Souvenir`
 
-#### Sub-Kategori yang Tersedia
-
-| Kategori | Sub-Kategori |
-|---|---|
-| Makanan | `Camilan & Snack`, `Kue & Roti`, `Lauk & Bahan Makanan`, `Makanan Tradisional` |
-| Minuman | `Kopi`, `Teh`, `Minuman Tradisional` |
-| Pakaian & Fashion | `Atasan & Pakaian Kasual`, `Pakaian Tradisional`, `Pakaian Anak` |
-| Aksesoris & Souvenir | `Aksesoris & Souvenir` |
-
-#### Response
-
+#### Response Output (HTTP 200 OK):
 ```json
 {
-  "status"              : "success",
-  "kesimpulan"          : "🌟 SANGAT MENARIK — Peluang laku 74.5%",
-  "peluang_laku_persen" : 74.5,
-  "alasan"              : [
-    "Terdapat 4 produk serupa di marketplace.",
-    "Harga Anda kompetitif, hanya 12% di bawah median pasar (Rp51.000).",
-    "Produk sejenis terbukti laku keras (rata-rata 320 terjual).",
-    "Model menilai kombinasi nama, kategori, dan harga sangat sesuai tren."
+  "status": "success",
+  "kesimpulan": "🌟 SANGAT MENARIK — Peluang laku 83.2%",
+  "peluang_laku_persen": 83.2,
+  "alasan": [
+    "Terdapat 6 produk serupa di marketplace.",
+    "Harga Anda (Rp45,000) kompetitif, sekitar 11.8% di bawah median pasar (Rp51,000).",
+    "Produk sejenis di kategori ini terbukti memiliki perputaran pasar yang sehat.",
+    "Model Random Forest v4 menilai teks nama dan posisi harga sangat bersaing di industri Makanan."
   ],
-
   "konteks_harga": {
-    "median_pasar"   : 51000,
-    "rasio_vs_pasar" : 0.88,
-    "segmen"         : "Menengah",
-    "selisih_persen" : -12.1
+    "median_pasar": 51000,
+    "rasio_vs_pasar": 0.88,
+    "segmen": "Menengah",
+    "selisih_persen": -11.8
   },
-
   "kompetitor": [
     {
-      "nama"            : "Lapis Talas Bogor Sangkuriang Blackforest",
-      "harga"           : 51000,
-      "rating"          : 5.0,
-      "terjual"         : 425,
-      "marketplace"     : "shopee",
-      "url_produk"      : "https://shopee.co.id/...",
-      "kemiripan_persen": 82.3
+      "nama": "Lapis Talas Bogor Sangkuriang Original Keju 500gr",
+      "harga": 51000,
+      "rating": 4.9,
+      "terjual": 450,
+      "marketplace": "Shopee",
+      "url_produk": "https://shopee.co.id/...",
+      "kemiripan_persen": 84.5
     }
   ],
-
   "produk_terpopuler": {
-    "label"    : "Top 5 Produk Paling Digemari di 'Makanan — Kue & Roti'",
-    "deskripsi": "Produk-produk yang paling diminati berdasarkan kombinasi jumlah penjualan dan rating.",
-    "produk"   : [
-      {
-        "nama"            : "Lapis Talas Bogor Sangkuriang Blackforest",
-        "kategori"        : "Makanan",
-        "sub_kategori"    : "Kue & Roti",
-        "harga"           : 51000,
-        "jumlah_terjual"  : 425,
-        "rating"          : 5.0,
-        "popularity_score": 30.27,
-        "marketplace"     : "shopee",
-        "url_produk"      : "https://shopee.co.id/...",
-        "nama_toko"       : "Anum Sari Snack"
-      }
-    ]
+    "label": "Top 5 Produk Paling Digemari di 'Makanan — Kue & Roti'",
+    "deskripsi": "Produk-produk yang paling diminati berdasarkan volume penjualan dan rating tertinggi.",
+    "produk": [...]
   },
-
   "insight_pasar": {
-    "narasi"                    : "Secara keseluruhan, produk yang paling banyak diminati adalah kategori 'Makanan' dengan total 45.230 penjualan...",
-    "kategori_terpopuler"       : "Makanan",
-    "sub_kategori_terpopuler"   : "Kue & Roti",
-    "posisi_kategori_anda"      : 1,
-    "total_kategori"            : 4,
-    "ranking_semua_kategori"    : [
-      { "rank": 1, "kategori": "Makanan",   "total_terjual": 45230, "avg_rating": 4.85 },
-      { "rank": 2, "kategori": "Minuman",   "total_terjual": 32100, "avg_rating": 4.90 },
-      { "rank": 3, "kategori": "Pakaian & Fashion", "total_terjual": 28000, "avg_rating": 4.72 },
-      { "rank": 4, "kategori": "Aksesoris & Souvenir", "total_terjual": 5400, "avg_rating": 4.88 }
-    ],
-    "top5_sub_kategori_global"  : [...],
+    "narasi": "Secara keseluruhan, produk yang paling banyak diminati pembeli adalah kategori 'Makanan'...",
+    "kategori_terpopuler": "Makanan",
+    "sub_kategori_terpopuler": "Kue & Roti",
+    "posisi_kategori_anda": 1,
+    "total_kategori": 4,
+    "ranking_semua_kategori": [...],
+    "top5_sub_kategori_global": [...],
     "sub_kategori_dalam_kategori_ini": [...]
   }
 }
@@ -156,134 +139,106 @@ curl -X POST https://radarumkmbogor-api.onrender.com/predict \
 
 ---
 
-## Cara Kerja Model
+## 🧠 Metodologi & Arsitektur Model v4
 
-### Pipeline Machine Learning (v3)
+### 1. Pembentukan Target (Stratifikasi Intra-Kategori)
+Berbeda dengan Model v3 lama yang menggunakan batas median global 34 unit (yang menimbulkan bias berat terhadap produk busana), **Model v4** menggunakan persentil penjualan intra-kategori (*category-stratified ranking*):
 
-```
-Input Pengguna
-│
-├─ nama_produk  → [Text Cleaning] → TF-IDF (1000 fitur, unigram+bigram)
-├─ kategori     → One-Hot Encoding
-├─ sub_kategori → One-Hot Encoding
-└─ harga_produk → Feature Engineering
-                    ├─ rasio_harga       = harga / median_kategori
-                    ├─ zscore_harga      = (harga - mean) / std dalam kategori
-                    ├─ log_harga         = log1p(harga)
-                    ├─ segmen_harga      = 0(murah) / 1(menengah) / 2(premium)
-                    ├─ jumlah_log        = log1p(jumlah_terjual estimasi kompetitor)
-                    ├─ revenue_proxy_log = log1p(harga × jumlah estimasi)
-                    └─ popularity_score  = rating × log1p(jumlah estimasi)
-                              ↓
-                    StandardScaler
-                              ↓
-               RandomForestClassifier (tuned GridSearchCV)
-                              ↓
-              Output: Probabilitas laku (0.0 – 1.0)
-```
+$$\text{rank\_pct}(produk \mid kategori) = \frac{\text{peringkat penjualan produk}}{\text{total produk kategori}}$$
 
-### Strategi Labeling
+$$\text{label} = \begin{cases} 1 \text{ (Menarik)}, & \text{jika } \text{rank\_pct} > 0.50 \\ 0 \text{ (Kurang Menarik)}, & \text{jika } \text{rank\_pct} \le 0.50 \end{cases}$$
 
-Dataset **tidak memiliki label eksplisit**. Label dibuat secara otomatis:
+- **Makanan:** 208 (0) vs 208 (1) $\rightarrow$ 50% : 50%
+- **Minuman:** 85 (0) vs 86 (1) $\rightarrow$ 50% : 50%
+- **Pakaian & Fashion:** 207 (0) vs 208 (1) $\rightarrow$ 50% : 50%
+- **Aksesoris & Souvenir:** 12 (0) vs 13 (1) $\rightarrow$ 50% : 50%
+- **Total Global:** 512 (0) vs 515 (1) $\rightarrow$ Rasio keseimbangan: **0.994** (sempurna).
+
+### 2. Eliminasi Target Leakage
+Pada Model v4, fitur `jumlah_log`, `revenue_proxy_log`, dan `popularity_score_new` **dicabut sepenuhnya dari input model klasifikasi**. Input model hanya mengandalkan fitur intrinsik teks, identitas kategori, dan profil harga relatif:
 
 ```
-label = 1 (Menarik)        jika jumlah_terjual > median(jumlah_terjual)
-label = 0 (Kurang Menarik) jika jumlah_terjual ≤ median(jumlah_terjual)
+Masukan Model (8 kolom DataFrame → 1.019 dimensi fitur):
+├── Teks (1 kolom)        : 'nama_produk_clean' → TfidfVectorizer (1.000 fitur unigram & bigram)
+├── Kategorikal (2 kolom) : ['kategori', 'sub_kategori'] → OneHotEncoder (14 fitur)
+└── Numerik (5 kolom)     : ['rasio_harga', 'zscore_harga', 'log_harga', 'segmen_harga', 'rating']
+                            → StandardScaler (5 fitur)
 ```
 
-Median jumlah_terjual ≈ **34 unit** → distribusi hampir seimbang (50.1% vs 49.9%).
+### 3. Hasil Evaluasi Ilmiah (Holdout Test 206 Sampel Independen)
+- **Akurasi:** **67.48%**
+- **Precision:** **68.00%**
+- **Recall:** **66.02%**
+- **F1-Score:** **66.99%**
+- **ROC-AUC:** **0.7242**
+- **5-Fold Cross Validation:** **62.73%** ($\pm 3.12\%$)
+- **Top 5 Feature Importance:** `zscore_harga` (3.56%), `rasio_harga` (3.28%), `log_harga` (3.10%), `rating` (2.95%), `lapis` (1.45%).
 
-### Fitur Utama
-
-| Fitur | Deskripsi | Kenapa Penting |
-|---|---|---|
-| `rasio_harga` | harga / median pasar kategori | Model tahu apakah harga "mahal" atau "murah" secara RELATIF |
-| `zscore_harga` | deviasi harga dari mean kategori | Mendeteksi harga yang sangat ekstrem |
-| `popularity_score` | rating × log1p(jumlah_terjual) | Gabungkan kualitas dan volume penjualan |
-| `revenue_proxy_log` | log(harga × jumlah_estimasi) | Proxy estimasi omzet produk |
-| TF-IDF nama produk | representasi teks nama | Model belajar dari kata-kata produk populer |
-
-### Fitur Paling Digemari
-
-Setelah prediksi, sistem otomatis menghitung **top-5 produk paling digemari** dalam kategori & sub-kategori yang sama berdasarkan:
-
-```
-popularity_score = rating × log1p(jumlah_terjual)
-```
-
-Rumus ini menggabungkan:
-- **Kualitas** produk (rating pelanggan)
-- **Volume** penjualan (jumlah terjual)
-- **Efek diminishing returns** — produk dengan 1000 terjual tidak 10× lebih populer dari 100 terjual
+> Model v4 menghasilkan metrik ilmiah yang realistis, berbobot, dan bebas dari tuduhan *overfitting/leakage* pada pengujian akademik.
 
 ---
 
-## Stack Teknologi
-
-| Komponen | Teknologi |
-|---|---|
-| Framework | Flask 3.0 + Flask-CORS |
-| Model | Random Forest (scikit-learn, GridSearchCV tuned) |
-| Text Processing | PySastrawi (Stemmer Bahasa Indonesia) |
-| Similarity Search | TF-IDF + Cosine Similarity |
-| Dataset | 1.027 produk UMKM Bogor (Tokopedia, Shopee, Lazada) |
-| Model File | `models/model_umkm_bogor_v3.joblib` |
-| Market Stats | `data/market_stats_v3.csv`, `data/market_stats_sub_kategori_v3.csv` |
-
----
-
-## Struktur File
+## 📂 Struktur Repositori
 
 ```
 RadarUMKMBogor-API/
-├── app.py                              # Flask API v3
-├── requirements.txt
-├── README.md
-├── data/                               # Dataset & Statistik Pasar
+├── app.py                                   # Entrypoint Flask API v4 & logic inference
+├── train_model_v4.py                        # Script otomatisasi training Model v4
+├── requirements.txt                         # Dependensi library Python
+├── README.md                                # Dokumentasi resmi API & Model v4
+├── tren_per_kategori.csv                    # Data agregasi tren penjualan per kategori
+├── tren_per_sub_kategori.csv                # Data agregasi tren penjualan per sub-kategori
+├── data/
 │   ├── processed/
-│   │   └── dataset_preprocessed.csv    # Dataset bersih (1027 produk)
-│   ├── raw/                            # Dataset original (sebelum preprocessing)
-│   ├── market_stats_v3.csv             # Statistik pasar per kategori
-│   └── market_stats_sub_kategori_v3.csv# Statistik pasar per sub_kategori
-├── models/                             # File Model Machine Learning
-│   ├── model_umkm_bogor_v3.joblib      # Model Random Forest v3
-│   └── preprocessors/                  # File pendukung transformasi (kalau ada)
-├── notebooks/                          # Eksperimen, Training & Perbandingan Model
-│   ├── retrain_model.ipynb             # Notebook training model v3
-│   ├── compare_models.ipynb            # Komparasi Random Forest vs Logistic Regression
-│   └── data_preprocessing.ipynb        # Notebook preprocessing data
-└── docs/                               # Dokumentasi
-    └── random_forest_rules.md          # Visualisasi logika & aturan klasifikasi
+│   │   └── dataset_preprocessed.csv         # Dataset bersih (1.027 produk UMKM Bogor)
+│   ├── market_stats_v4.csv                  # Statistik pasar median/mean/std per kategori
+│   └── market_stats_sub_kategori_v4.csv     # Statistik pasar per sub-kategori
+├── models/
+│   └── model_umkm_bogor_v4.joblib           # Artefak biner Pipeline Random Forest v4
+└── notebooks/
+    └── audit_model_v4_evaluation.ipynb      # Notebook evaluasi resmi Model v4 & visualisasi
 ```
 
 ---
 
-## Menjalankan Lokal
+## 💻 Menjalankan Secara Lokal
 
 ```bash
+# 1. Clone repositori
+git clone https://github.com/AogamiKiryuu/RadarUMKMBogor-API.git
+cd RadarUMKMBogor-API
+
+# 2. Buat virtual environment & install dependensi
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+
 pip install -r requirements.txt
 
-# Jalankan training dulu (jika model belum ada)
-jupyter notebook notebooks/retrain_model.ipynb
-
-# Jalankan API
+# 3. Jalankan server Flask
 python app.py
 ```
 
-Server berjalan di `http://localhost:5000`.
+Server akan aktif secara lokal di `http://localhost:5000`.
 
 ---
 
-## Changelog
+## 📜 Riwayat Pembaruan (Changelog)
 
-| Versi | Perubahan |
-|---|---|
-| v1 | Model baseline Random Forest, fitur: harga absolut + rating |
-| v2 | Fitur harga relatif pasar: rasio_harga, zscore_harga, log_harga, segmen_harga |
-| v3 | Dataset 1027 produk, fitur baru: jumlah_log, revenue_proxy_log, popularity_score. Tambah **fitur Paling Digemari** di response `/predict` |
+- **v4 (Oktober 2026 - Rilis Resmi Skripsi):**
+  - Pembaruan strategi labeling berbasis persentil 50% intra-kategori (`rank_pct > 0.50`), menjamin keadilan 50:50 di seluruh sektor (menghilangkan bias pakaian).
+  - Eliminasi total target leakage (`jumlah_log`, `revenue_proxy_log`, `popularity_score_new` dicabut dari input model).
+  - Peningkatan ensemble pohon: `n_estimators = 200`, `class_weight = 'balanced'`.
+  - Akurasi realistis: 67.48%, ROC-AUC: 0.7242, 5-Fold CV: 62.73%.
+  - Pembersihan file model dan script lama.
+- **v3 (Versi Transisi):** Pengenalan fitur harga relatif, threshold global 34 unit.
+- **v2 (Historis):** Eksperimen skor komposit terjual dan rating.
+- **v1 (Baseline):** Model Random Forest awal berbasis harga absolut.
 
 ---
 
-## Lisensi
+## 🎓 Lisensi & Afiliasi
 
-Repositori ini dibuat untuk keperluan akademik program MBKM.
+Dikembangkan sebagai bagian dari penelitian tugas akhir / program MBKM untuk digitalisasi dan pemberdayaan pelaku UMKM lokal di Kota & Kabupaten Bogor.
