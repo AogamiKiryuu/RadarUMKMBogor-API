@@ -1543,9 +1543,14 @@ def predict():
                 "model menilai produk cukup berpotensi di pasar, namun masih ada ruang untuk optimasi harga atau diferensiasi"
             )
         else:
-            alasan_parts.append(
-                "model menilai produk ini belum cukup kompetitif — pertimbangkan menyesuaikan harga mendekati median pasar atau memperkuat identitas produk"
-            )
+            if len(kompetitor_df) > 0 and avg_terjual_k > 50:
+                alasan_parts.append(
+                    "pasar untuk komoditas ini terbukti aktif namun persaingan dengan nama generik sangat padat karena didominasi merek-merek besar mapan. Pelaku UMKM disarankan memperkuat diferensiasi varian produk (seperti inovasi rasa brownies/keju, kemasan khusus, atau keunggulan lokal) agar memiliki identitas pembeda yang kuat di pencarian marketplace"
+                )
+            else:
+                alasan_parts.append(
+                    "model menilai produk ini belum cukup kompetitif — pertimbangkan menyesuaikan harga mendekati median pasar atau memperkuat identitas produk"
+                )
 
         # 6. Konteks tren kategori ke alasan
         baris_kat_tren = [
