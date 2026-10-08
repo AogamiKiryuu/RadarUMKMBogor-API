@@ -67,26 +67,15 @@ list_stopwords = {
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r"[^a-z\s]", " ", text)
-    words = text.split()
-    words = [w for w in words if w not in list_stopwords]
+    words = [w for w in text.split() if w not in list_stopwords]
     return stemmer.stem(" ".join(words))
 
-    text = re.sub(r'[^a-z\s]', ' ', text)
-    words = [w for w in text.split() if w not in list_stopwords]
-    return stemmer.stem(' '.join(words))
-
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Pre-Cache TF-IDF untuk mempercepat pencarian kompetitor
-# ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. Pre-Cache TF-IDF untuk pencarian kompetitor
+# 4. Pre-Cache TF-IDF untuk pencarian kompetitor
 # ─────────────────────────────────────────────────────────────────────────────
 print("Mengoptimasi pencarian kompetitor (Pre-caching TF-IDF)...")
 tfidf_vectorizer = rf_pipeline.named_steps["preprocessor"].transformers_[0][1]
 X_train_text_db = tfidf_vectorizer.transform(df["nama_produk_clean"].fillna(""))
-print("✅ Server Flask SIAP DIGUNAKAN!")
-tfidf_vectorizer  = rf_pipeline.named_steps['preprocessor'].transformers_[0][1]
-X_train_text_db   = tfidf_vectorizer.transform(df['nama_produk_clean'].fillna(''))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Konstanta validasi harga
@@ -134,7 +123,7 @@ def _build_sub_kategori_ranking():
 KATEGORI_RANKING     = _build_kategori_ranking()
 SUB_KATEGORI_RANKING = _build_sub_kategori_ranking()
 
-print("✅ Server Flask SIAP DIGUNAKAN! (Model v3)")
+print("✅ Server Flask SIAP DIGUNAKAN! (Model v4 Hybrid Ensemble)")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. HELPER: Fitur Bisnis Relatif Pasar
@@ -1311,99 +1300,58 @@ def predict():
                 )
             }), 400
 
-        # ── VALIDASI 2: Deteksi Identitas Bogor ───────────────────────────
-        mengandung_identitas_bogor = any(
-            kata in nama_lower for kata in KATA_KUNCI_WILAYAH_BOGOR
-        )
         # ── VALIDASI 2: Identitas Bogor ────────────────────────────────────────
         mengandung_identitas_bogor = any(kata in nama_lower for kata in KATA_KUNCI_WILAYAH_BOGOR)
 
-        # ── Cari Kompetitor menggunakan Cosine Similarity ─────────────────
+        # ── Cari Kompetitor — Cosine Similarity ───────────────────────────────
         query_clean = clean_text(nama_produk_input)
         query_vec = tfidf_vectorizer.transform([query_clean])
         sim_scores = cosine_similarity(query_vec, X_train_text_db).flatten()
         top_indices = sim_scores.argsort()[-5:][::-1]
-        # ── Cari Kompetitor — Cosine Similarity ───────────────────────────────
-        query_clean  = clean_text(nama_produk_input)
-        query_vec    = tfidf_vectorizer.transform([query_clean])
-        sim_scores   = cosine_similarity(query_vec, X_train_text_db).flatten()
-        top_indices  = sim_scores.argsort()[-6:][::-1]
 
         kompetitor_df = df.iloc[top_indices].copy()
         top_sim_scores = sim_scores[top_indices]
         kompetitor_mask = top_sim_scores > 0.05
         kompetitor_df = kompetitor_df[kompetitor_mask]
         filtered_sim_scores = top_sim_scores[kompetitor_mask]
-        kompetitor_df      = df.iloc[top_indices].copy()
-        top_sim_scores     = sim_scores[top_indices]
-        kompetitor_mask    = top_sim_scores > 0.05
-        kompetitor_df      = kompetitor_df[kompetitor_mask]
-        filtered_sim       = top_sim_scores[kompetitor_mask]
 
-        # ── Rating proxy dari kompetitor ──────────────────────────────────
-        # Dataset sudah bersih (nilai 0 diganti rata-rata), jadi mean di sini akurat
         # ── Hitung skor kemiripan tertinggi untuk deteksi coverage dataset ───
         max_sim_score = float(top_sim_scores[0]) if len(top_sim_scores) > 0 else 0.0
 
         # ── Estimasi Rating & Jumlah dari Kompetitor ─────────────────────────
         if len(kompetitor_df) > 0:
-            rating_input = float(kompetitor_df["rating"].mean())
             rating_est = float(kompetitor_df['rating'].mean())
             jumlah_est = float(kompetitor_df['jumlah_terjual'].median())
         else:
-            rating_input = round(_mean_rating_nz, 4)  # fallback ke rata-rata global
             rating_est = 3.5
             jumlah_est = 30.0
 
-        # ── Validasi identitas Bogor ───────────────────────────────────────
         if not mengandung_identitas_bogor and len(kompetitor_df) == 0:
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": (
-                        f"Produk '{nama_produk_input}' tidak terdeteksi sebagai produk khas Bogor "
-                        f"(Kota maupun Kabupaten). Pastikan nama produk mengandung identitas lokal Bogor, "
-                        f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
-                        f"atau produk ikonik (Lapis Talas, Roti Unyil, Kopi Puncak, Renginang, dll)."
-                    ),
-                }
-            ), 400
             return jsonify({
-                "status" : "error",
+                "status": "error",
                 "message": (
-                    f"Produk '{nama_produk_input}' tidak terdeteksi sebagai produk khas Bogor. "
-                    f"Pastikan nama produk mengandung identitas lokal seperti 'Khas Bogor', "
-                    f"nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
+                    f"Produk '{nama_produk_input}' tidak terdeteksi sebagai produk khas Bogor "
+                    f"(Kota maupun Kabupaten). Pastikan nama produk mengandung identitas lokal Bogor, "
+                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
                     f"atau produk ikonik (Lapis Talas, Roti Unyil, Kopi Puncak, Renginang, dll)."
                 )
             }), 400
 
         if not mengandung_identitas_bogor:
-            return jsonify(
-                {
-                    "status": "warning",
-                    "message": (
-                        f"Produk '{nama_produk_input}' tidak secara eksplisit mencantumkan identitas Bogor. "
-                        f"Untuk memperkuat positioning sebagai produk UMKM Bogor, tambahkan kata kunci "
-                        f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
-                        f"atau produk ikonik pada nama produk Anda."
-                    ),
-                }
-            ), 400
             return jsonify({
-                "status" : "warning",
+                "status": "warning",
                 "message": (
-                    f"Produk '{nama_produk_input}' tidak mencantumkan identitas Bogor secara eksplisit. "
-                    f"Tambahkan 'Khas Bogor', nama kawasan, atau produk ikonik pada nama produk Anda."
+                    f"Produk '{nama_produk_input}' tidak secara eksplisit mencantumkan identitas Bogor. "
+                    f"Untuk memperkuat positioning sebagai produk UMKM Bogor, tambahkan kata kunci "
+                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
+                    f"atau produk ikonik pada nama produk Anda."
                 )
             }), 400
 
-        # ── HITUNG FITUR BISNIS RELATIF PASAR ─────────────────────────────
-        fitur_bisnis = hitung_fitur_bisnis(harga_input, kategori_input)
         # ── Blokir prediksi jika tidak ada produk serupa di dataset ───────────
         if len(kompetitor_df) == 0:
             return jsonify({
-                "status" : "error",
+                "status": "error",
                 "message": (
                     f"Mohon maaf, produk '{nama_produk_input}' belum tersedia dalam "
                     f"database referensi kami yang dikumpulkan dari hasil scraping marketplace. "
@@ -1424,9 +1372,9 @@ def predict():
 
         # ── Hitung Fitur Bisnis ────────────────────────────────────────────────
         fitur = hitung_fitur_bisnis(harga_input, kategori_input)
+        fitur_bisnis = fitur
 
         # ── VALIDASI 3: Harga Tidak Wajar ─────────────────────────────────
-        # Harga yang jauh di luar nalar pasar tidak dapat diprediksi secara valid.
         batas_rasio = (
             BATAS_RASIO_MAKANAN_MINUMAN
             if kategori_input in KATEGORI_KONSUMSI
@@ -1439,126 +1387,107 @@ def predict():
                 f" Untuk kategori '{kategori_input}', harga yang masuk akal "
                 f"umumnya tidak melebihi {batas_rasio:.0f}× median pasar."
             )
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": (
-                        f"Harga {harga_fmt} tidak wajar untuk kategori '{kategori_input}'. "
-                        f"Harga ini {fitur_bisnis['rasio_harga']:.1f}× lebih tinggi dari median pasar "
-                        f"({median_pasar_fmt}).{pesan_kategori} "
-                        f"Prediksi tidak dapat dilakukan karena data pelatihan tidak mencakup "
-                        f"rentang harga sejauh ini."
-                    ),
-                    "rasio_terhadap_pasar": round(fitur_bisnis["rasio_harga"], 2),
-                    "median_pasar": round(fitur_bisnis["median_pasar"], 0),
-                }
-            ), 400
+            return jsonify({
+                "status": "error",
+                "message": (
+                    f"Harga {harga_fmt} tidak wajar untuk kategori '{kategori_input}'. "
+                    f"Harga ini {fitur_bisnis['rasio_harga']:.1f}× lebih tinggi dari median pasar "
+                    f"({median_pasar_fmt}).{pesan_kategori} "
+                    f"Prediksi tidak dapat dilakukan karena data pelatihan tidak mencakup "
+                    f"rentang harga sejauh ini."
+                ),
+                "rasio_terhadap_pasar": round(fitur_bisnis["rasio_harga"], 2),
+                "median_pasar": round(fitur_bisnis["median_pasar"], 0),
+            }), 400
 
         # ── PREDIKSI Machine Learning v4 (Bebas Target Leakage) ────────────
         input_df = pd.DataFrame([{
-            'nama_produk_clean' : query_clean,
-            'kategori'          : kategori_input,
-            'sub_kategori'      : sub_kategori_input,
-            'rasio_harga'       : fitur['rasio_harga'],
-            'zscore_harga'      : fitur['zscore_harga'],
-            'log_harga'         : fitur['log_harga'],
-            'segmen_harga'      : fitur['segmen_harga'],
-            'rating'            : rating_est,
+            'nama_produk_clean': query_clean,
+            'kategori': kategori_input,
+            'sub_kategori': sub_kategori_input,
+            'rasio_harga': fitur['rasio_harga'],
+            'zscore_harga': fitur['zscore_harga'],
+            'log_harga': fitur['log_harga'],
+            'segmen_harga': fitur['segmen_harga'],
+            'rating': rating_est,
         }])
 
-        probabilitas = float(rf_pipeline.predict_proba(input_df)[0][1])
-        
+        probabilitas_ml = float(rf_pipeline.predict_proba(input_df)[0][1])
+
+        # ── HYBRID ENSEMBLE: Model ML v4 + Bukti Traksi Pasar (Cosine Similarity) ──
+        # Model ML v4 objektif dan bebas target leakage.
+        # Namun, produk UMKM legendaris / niche yang di dataset hanya memiliki sedikit sampel
+        # (seperti Roti Unyil) tetap memiliki bukti traksi nyata jika ditemukan kompetitor
+        # relevan dengan rating tinggi di marketplace.
+        if len(kompetitor_df) > 0 and max_sim_score >= 0.15:
+            # Normalisasi rating kompetitor (3.0 -> 0.0, 5.0 -> 1.0)
+            rating_factor = min(1.0, max(0.0, (rating_est - 3.0) / 2.0))
+            # Skor bukti pasar memadukan tingkat kemiripan tekstual dan kepuasan pembeli
+            market_proof = (max_sim_score * 0.5) + (rating_factor * 0.5)
+            # Bobot ensemble: 75% Model ML + 25% Traksi Bukti Pasar
+            probabilitas = (0.75 * probabilitas_ml) + (0.25 * market_proof)
+        else:
+            probabilitas = probabilitas_ml
+
         # ── GUARDRAIL: Koreksi Probabilitas untuk Harga Abnormal (Outliers) ──
-        # Berdasarkan bisnis rules: Jika harga terlalu jauh di atas rata-rata pasar,
-        # mustahil produk akan laku, terlepas dari apa prediksi murni Random Forest.
+        # Jika harga terlalu jauh di atas rata-rata pasar, daya saing produk akan tertekan.
         rasio = fitur['rasio_harga']
-        
         if rasio > 1.3:
-            # Harga > 30% dari median pasar (seharusnya Kurang Menarik / < 0.5)
             if rasio >= 5.0:
-                probabilitas = min(probabilitas, 0.02) # Harga gila (>5x lipat pasar) -> Max 2%
+                probabilitas = min(probabilitas, 0.02)  # Harga ekstrem (>5x lipat pasar) -> Max 2%
             elif rasio >= 3.0:
-                probabilitas = min(probabilitas, 0.15) # Sangat sulit bersaing -> Max 15%
+                probabilitas = min(probabilitas, 0.15)  # Sangat sulit bersaing -> Max 15%
             elif rasio >= 2.0:
-                probabilitas = min(probabilitas, 0.35) # Sulit laku -> Max 35%
+                probabilitas = min(probabilitas, 0.35)  # Sulit laku -> Max 35%
             else:
-                probabilitas = min(probabilitas, 0.45) # Kurang menarik -> Max 45%
+                probabilitas = min(probabilitas, 0.45)  # Terlalu mahal (>30% pasar) -> Max 45%
         elif rasio < 0.3:
-            # Harga terlalu murah (< 30% dari median pasar, selisih < -70%)
-            probabilitas = min(probabilitas, 0.35) # Mencurigakan -> Max 35%
+            probabilitas = min(probabilitas, 0.35)  # Terlalu murah (mencurigakan) -> Max 35%
 
         peluang_persen = round(probabilitas * 100, 1)
 
-        if probabilitas >= 0.7:
-            status_prediksi = (
-                f"🌟 SANGAT MENARIK — Model memprediksi peluang laku {peluang_persen}%"
-            )
+        # ── KLASIFIKASI TIERING REALISTIS ──────────────────────────────────
+        if probabilitas >= 0.65:
             status_prediksi = f"🌟 SANGAT MENARIK — Peluang laku {peluang_persen}%"
-        elif probabilitas >= 0.5:
-            status_prediksi = (
-                f"✅ CUKUP MENARIK — Model memprediksi peluang laku {peluang_persen}%"
-            )
+        elif probabilitas >= 0.40:
             status_prediksi = f"✅ CUKUP MENARIK — Peluang laku {peluang_persen}%"
         else:
-            status_prediksi = (
-                f"⚠️ KURANG MENARIK — Model memprediksi peluang laku {peluang_persen}%"
-            )
             status_prediksi = f"⚠️ KURANG MENARIK — Peluang laku {peluang_persen}%"
 
         # ── BANGUN ALASAN PREDIKSI ─────────────────────────────────────────
         alasan_parts = []
-        median_pasar = fitur_bisnis["median_pasar"]
-        selisih_persen = fitur_bisnis["selisih_persen"]
-        # ── Bangun Alasan Prediksi ─────────────────────────────────────────────
-        alasan_parts    = []
-        median_pasar    = fitur['median_pasar']
-        selisih_persen  = fitur['selisih_persen']
+        median_pasar = fitur['median_pasar']
+        selisih_persen = fitur['selisih_persen']
 
         if len(kompetitor_df) > 0:
-            avg_terjual_kompetitor = kompetitor_df["jumlah_terjual"].mean()
-            avg_rating_kompetitor = kompetitor_df["rating"].mean()
-            jumlah_kompetitor = len(kompetitor_df)
-            avg_harga_k   = kompetitor_df['harga_produk'].mean()
-            avg_terjual_k = kompetitor_df['jumlah_terjual'].mean()
-            n_k           = len(kompetitor_df)
+            avg_terjual_k = float(kompetitor_df['jumlah_terjual'].mean())
+            avg_rating_k = float(kompetitor_df['rating'].mean())
+            n_k = len(kompetitor_df)
 
-            # Konteks persaingan
-            if jumlah_kompetitor >= 4:
-                alasan_parts.append(
-                    f"produk serupa sudah banyak dijual di marketplace "
-                    f"({jumlah_kompetitor} kompetitor ditemukan)"
-                )
-            elif jumlah_kompetitor >= 2:
-                alasan_parts.append(
-                    f"terdapat {jumlah_kompetitor} produk serupa di marketplace"
-                )
+            # 1. Konteks persaingan
             if n_k >= 4:
-                alasan_parts.append(f"produk serupa sudah banyak dijual ({n_k} kompetitor ditemukan)")
+                alasan_parts.append(
+                    f"produk serupa sudah banyak dijual di marketplace ({n_k} kompetitor ditemukan)"
+                )
             elif n_k >= 2:
-                alasan_parts.append(f"terdapat {n_k} produk serupa di marketplace")
+                alasan_parts.append(
+                    f"terdapat {n_k} produk serupa di marketplace"
+                )
             else:
                 alasan_parts.append(
-                    "produk ini masih sangat jarang ditemukan di marketplace "
-                    "(potensi pasar terbuka lebar)"
+                    "produk ini masih sangat jarang ditemukan di marketplace (potensi pasar terbuka lebar)"
                 )
-                alasan_parts.append("produk ini masih sangat jarang di marketplace (peluang terbuka lebar)")
 
-            # Konteks harga vs median pasar kategori
+            # 2. Konteks harga vs median pasar kategori
             if selisih_persen > 100:
                 alasan_parts.append(
-                    f"harga Anda {selisih_persen:.0f}% lebih tinggi dari median pasar "
-                    f"kategori ini (Rp{median_pasar:,.0f}) — "
+                    f"harga Anda {selisih_persen:.0f}% lebih tinggi dari median pasar kategori ini (Rp{median_pasar:,.0f}) — "
                     f"harga yang terlalu tinggi akan sangat sulit bersaing"
-                    f"harga Anda {selisih_persen:.0f}% di atas median pasar (Rp{median_pasar:,.0f}) — "
-                    f"sangat sulit bersaing"
                 )
             elif selisih_persen > 30:
                 alasan_parts.append(
-                    f"harga Anda {selisih_persen:.0f}% di atas median pasar "
-                    f"(Rp{median_pasar:,.0f}) — pertimbangkan menurunkan harga "
-                    f"atau menambah nilai tambah produk"
                     f"harga Anda {selisih_persen:.0f}% di atas median pasar (Rp{median_pasar:,.0f}) — "
-                    f"pertimbangkan menyesuaikan harga atau menambah nilai tambah"
+                    f"pertimbangkan menyesuaikan harga atau menambah nilai tambah produk"
                 )
             elif selisih_persen < -70:
                 alasan_parts.append(
@@ -1567,81 +1496,60 @@ def predict():
                 )
             elif selisih_persen < -30:
                 alasan_parts.append(
-                    f"harga Anda {abs(selisih_persen):.0f}% di bawah median pasar "
-                    f"(Rp{median_pasar:,.0f}) — sangat kompetitif, "
-                    f"berpotensi menarik banyak pembeli"
+                    f"harga Anda {abs(selisih_persen):.0f}% di bawah median pasar (Rp{median_pasar:,.0f}) — "
+                    f"sangat kompetitif, berpotensi menarik banyak pembeli"
                 )
             else:
                 arah = "di atas" if selisih_persen > 0 else "di bawah"
                 alasan_parts.append(
-                    f"harga Anda sudah kompetitif, hanya {abs(selisih_persen):.0f}% "
-                    f"{arah} median pasar (Rp{median_pasar:,.0f})"
-                    f"harga Anda kompetitif, hanya {abs(selisih_persen):.0f}% "
-                    f"{'di atas' if selisih_persen > 0 else 'di bawah'} median pasar (Rp{median_pasar:,.0f})"
+                    f"harga Anda kompetitif, hanya {abs(selisih_persen):.0f}% {arah} median pasar (Rp{median_pasar:,.0f})"
                 )
 
-            # Konteks penjualan kompetitor
-            if avg_terjual_kompetitor >= 100:
-                alasan_parts.append(
-                    f"produk sejenis terbukti laku keras dengan rata-rata "
-                    f"{avg_terjual_kompetitor:.0f} terjual"
-                )
-            elif avg_terjual_kompetitor >= 20:
-                alasan_parts.append(
-                    f"produk sejenis memiliki permintaan sedang dengan rata-rata "
-                    f"{avg_terjual_kompetitor:.0f} terjual"
-                )
+            # 3. Konteks penjualan kompetitor
             if avg_terjual_k >= 100:
-                alasan_parts.append(f"produk sejenis terbukti laku keras (rata-rata {avg_terjual_k:.0f} terjual)")
+                alasan_parts.append(
+                    f"produk sejenis terbukti laku keras (rata-rata {avg_terjual_k:.0f} terjual)"
+                )
             elif avg_terjual_k >= 20:
-                alasan_parts.append(f"produk sejenis memiliki permintaan sedang (rata-rata {avg_terjual_k:.0f} terjual)")
+                alasan_parts.append(
+                    f"produk sejenis memiliki permintaan sedang (rata-rata {avg_terjual_k:.0f} terjual)"
+                )
             else:
                 alasan_parts.append(
-                    f"penjualan produk sejenis di pasar masih rendah "
-                    f"(rata-rata {avg_terjual_kompetitor:.0f} terjual)"
+                    f"penjualan produk sejenis di pasar masih berkembang (rata-rata {avg_terjual_k:.0f} terjual)"
                 )
 
-            # Konteks rating kompetitor
-            if avg_rating_kompetitor >= 4.5:
+            # 4. Konteks rating kompetitor
+            if avg_rating_k >= 4.5:
                 alasan_parts.append(
-                    f"produk serupa memiliki rating sangat tinggi "
-                    f"({avg_rating_kompetitor:.2f}/5.0) — standar kualitas di segmen ini tinggi"
+                    f"produk serupa memiliki rating sangat tinggi ({avg_rating_k:.2f}/5.0) — standar kualitas di segmen ini tinggi"
                 )
-            elif avg_rating_kompetitor >= 4.0:
+            elif avg_rating_k >= 4.0:
                 alasan_parts.append(
-                    f"rating produk serupa cukup baik ({avg_rating_kompetitor:.2f}/5.0)"
+                    f"rating produk serupa cukup baik ({avg_rating_k:.2f}/5.0)"
                 )
-                alasan_parts.append(f"penjualan produk sejenis masih rendah (rata-rata {avg_terjual_k:.0f} terjual)")
         else:
             alasan_parts.append(
-                "belum ada produk serupa yang terdeteksi di marketplace, "
-                "peluang untuk menjadi yang pertama sangat besar"
+                "belum ada produk serupa yang terdeteksi di marketplace, peluang menjadi pionir sangat terbuka"
             )
-            alasan_parts.append("belum ada produk serupa yang terdeteksi, peluang menjadi yang pertama sangat besar")
 
-        if probabilitas >= 0.7:
+        # 5. Konteks evaluasi model
+        if probabilitas >= 0.65:
             alasan_parts.append(
-                "model menilai kombinasi nama, kategori, dan posisi harga Anda "
-                "sangat sesuai dengan tren pasar saat ini"
+                "model menilai kombinasi nama produk, kategori, dan posisi harga sangat sesuai tren pasar saat ini"
             )
-            alasan_parts.append("model menilai kombinasi nama, kategori, dan posisi harga sangat sesuai tren pasar")
-        elif probabilitas >= 0.5:
+        elif probabilitas >= 0.40:
             alasan_parts.append(
-                "model menilai produk Anda cukup berpotensi, namun masih ada "
-                "ruang untuk optimasi harga atau penamaan"
+                "model menilai produk cukup berpotensi di pasar, namun masih ada ruang untuk optimasi harga atau diferensiasi"
             )
-            alasan_parts.append("model menilai produk cukup berpotensi, masih ada ruang untuk optimasi")
         else:
             alasan_parts.append(
-                "model menilai produk ini belum cukup kompetitif — "
-                "pertimbangkan menyesuaikan harga mendekati median pasar "
-                "atau memperkuat identitas produk"
+                "model menilai produk ini belum cukup kompetitif — pertimbangkan menyesuaikan harga mendekati median pasar atau memperkuat identitas produk"
             )
 
-        # Tambahkan konteks tren kategori ke alasan
+        # 6. Konteks tren kategori ke alasan
         baris_kat_tren = [
-            r
-            for r in tren_per_kategori.to_dict("records")
+            r for r in tren_per_kategori.to_dict("records")
             if r["kategori"] == kategori_input
         ]
         if baris_kat_tren:
@@ -1650,15 +1558,12 @@ def predict():
             top_kat_nm = str(tren_per_kategori.to_dict("records")[0]["kategori"])
             if rank_k == 1:
                 alasan_parts.append(
-                    f"kategori '{kategori_input}' adalah kategori yang paling diminati "
-                    f"pembeli dari {total_k} kategori yang ada — momentum pasar mendukung"
+                    f"kategori '{kategori_input}' adalah kategori yang paling diminati pembeli dari {total_k} kategori yang ada — momentum pasar mendukung"
                 )
             else:
                 alasan_parts.append(
-                    f"kategori '{kategori_input}' berada di peringkat {rank_k}/{total_k} "
-                    f"secara keseluruhan; kategori '{top_kat_nm}' saat ini lebih banyak diminati"
+                    f"kategori '{kategori_input}' berada di peringkat {rank_k}/{total_k} secara keseluruhan; kategori '{top_kat_nm}' saat ini lebih banyak diminati"
                 )
-            alasan_parts.append("model menilai produk belum cukup kompetitif — sesuaikan harga atau perkuat identitas")
 
         alasan = [p.capitalize() + "." for p in alasan_parts]
 
