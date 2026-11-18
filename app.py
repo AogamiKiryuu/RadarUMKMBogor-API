@@ -35,39 +35,26 @@ if 'popularity_score' not in df.columns:
     df['popularity_score'] = df['rating'] * np.log1p(df['jumlah_terjual'])
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Setup Sastrawi Stemmer
+# 2. Setup Sastrawi Stemmer & Text Cleaning (Identik dengan data_preprocessing.ipynb)
 # ─────────────────────────────────────────────────────────────────────────────
 stemmer = StemmerFactory().create_stemmer()
-list_stopwords = {
-    "murah",
-    "promo",
-    "cod",
-    "terlaris",
-    "original",
-    "ori",
-    "asli",
-    "oleh",
-    "pcs",
-    "gr",
-    "gram",
-    "kg",
-    "dan",
-    "di",
-    "ke",
-    "dari",
-    "yang",
-}
 
+# Stopwords diselaraskan dengan pembuatan kolom nama_produk_clean pada dataset
+# agar tidak terjadi train-serve skew saat inferensi.
 list_stopwords = {
-    'murah', 'promo', 'cod', 'terlaris', 'original', 'ori', 'asli',
-    'oleh', 'pcs', 'gr', 'gram', 'kg', 'dan', 'di', 'ke', 'dari', 'yang',
-    'khas', 'bogor', 'untuk', 'dengan', 'yang', 'ini', 'itu'
+    'dan', 'atau', 'di', 'ke', 'dari', 'untuk', 'dengan', 'yang',
+    'ini', 'itu', 'khas', 'bogor', 'oleh', 'adalah', 'juga', 'sudah'
 }
 
 def clean_text(text):
-    text = str(text).lower()
-    text = re.sub(r"[^a-z\s]", " ", text)
-    words = [w for w in text.split() if w not in list_stopwords]
+    if not isinstance(text, str):
+        return ""
+    text = text.lower()
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\b\d+\b", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    words = [w for w in text.split() if w not in list_stopwords and len(w) > 1]
     return stemmer.stem(" ".join(words))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -130,19 +117,11 @@ print("✅ Server Flask SIAP DIGUNAKAN! (Model v4 Hybrid Ensemble)")
 # ─────────────────────────────────────────────────────────────────────────────
 def hitung_fitur_bisnis(harga: float, kategori: str) -> dict:
     """
-    Menghitung fitur harga RELATIF terhadap pasar per kategori.
+    Menghitung fitur harga RELATIF terhadap pasar per kategori (dari market_stats_v4.csv).
     Returns dict dengan: rasio_harga, zscore_harga, log_harga, segmen_harga,
                          median_pasar, selisih_persen
-    Menghitung fitur harga RELATIF terhadap pasar per kategori.
-    Dipakai untuk inference model v3.
     """
     if kategori in market_stats.index:
-        stat = market_stats.loc[kategori]
-        median_kat = stat["median_harga_kategori"]
-        mean_kat = stat["mean_harga_kategori"]
-        std_kat = stat["std_harga_kategori"]
-        q25_kat = stat["q25_harga_kategori"]
-        q75_kat = stat["q75_harga_kategori"]
         stat       = market_stats.loc[kategori]
         median_kat = stat['median_harga_kategori']
         mean_kat   = stat['mean_harga_kategori']
@@ -151,30 +130,17 @@ def hitung_fitur_bisnis(harga: float, kategori: str) -> dict:
         q75_kat    = stat['q75_harga_kategori']
     else:
         # Fallback: pakai statistik global jika kategori tidak dikenal
-        median_kat = df["harga_produk"].median()
-        mean_kat = df["harga_produk"].mean()
-        std_kat = df["harga_produk"].std()
-        q25_kat = df["harga_produk"].quantile(0.25)
-        q75_kat = df["harga_produk"].quantile(0.75)
         median_kat = df['harga_produk'].median()
         mean_kat   = df['harga_produk'].mean()
         std_kat    = df['harga_produk'].std()
         q25_kat    = df['harga_produk'].quantile(0.25)
         q75_kat    = df['harga_produk'].quantile(0.75)
 
-    rasio = min(harga / max(median_kat, 1), 50)
-    zscore = float(np.clip((harga - mean_kat) / max(std_kat, 1), -5, 5))
-    log_h = float(np.log1p(harga))
-
-    # 0 = Murah, 1 = Menengah, 2 = Mahal  (sebelumnya "premium" → kini "mahal")
-    if harga <= q25_kat:
-        segmen = 0
-    elif harga <= q75_kat:
-        segmen = 1
     rasio  = min(harga / max(median_kat, 1), 50)
     zscore = float(np.clip((harga - mean_kat) / max(std_kat, 1), -5, 5))
     log_h  = float(np.log1p(harga))
 
+    # 0 = Murah, 1 = Menengah, 2 = Premium/Mahal
     if harga <= q25_kat:    segmen = 0
     elif harga <= q75_kat:  segmen = 1
     else:                   segmen = 2
@@ -409,6 +375,7 @@ def bangun_tren_output(kategori_input: str, sub_kategori_input: str) -> dict:
             f"untuk kategori '{kategori_input}'."
         )
 
+    insight = get_insight_keseluruhan(kategori_input)
     return {
         "paling_diminati_keseluruhan": paling_diminati,
         "keterangan_kategori": keterangan_kategori,
@@ -417,19 +384,12 @@ def bangun_tren_output(kategori_input: str, sub_kategori_input: str) -> dict:
         "semua_kategori": semua_kategori,
         "keterangan_sub_kategori": keterangan_sub,
         "semua_sub_kategori": semua_sub,
-        "kategori_terpopuler"    : str(top_kategori['kategori']),
-        "sub_kategori_terpopuler": str(top_sub['sub_kategori']),
-        "posisi_kategori_anda"   : posisi_kategori,
-        "total_kategori"         : len(ranking_list),
-        "ranking_kategori"       : ranking_list,
-        "top5_sub_kategori"      : top_sub_list,
-        "narasi": (
-            f"Secara keseluruhan, produk yang paling banyak diminati pembeli adalah kategori "
-            f"'{top_kategori['kategori']}' dengan total estimasi {int(top_kategori['total_terjual']):,} penjualan "
-            f"dan rata-rata rating {top_kategori['avg_rating']:.2f}. "
-            f"Sub-kategori paling populer adalah '{top_sub['sub_kategori']}' "
-            f"({top_sub['kategori']}) dengan {int(top_sub['total_terjual']):,} total terjual."
-        )
+        "kategori_terpopuler"    : insight['kategori_terpopuler'],
+        "sub_kategori_terpopuler": insight['sub_kategori_terpopuler'],
+        "posisi_kategori_anda"   : insight['posisi_kategori_anda'],
+        "ranking_kategori"       : insight['ranking_kategori'],
+        "top5_sub_kategori"      : insight['top5_sub_kategori'],
+        "narasi"                 : insight['narasi'],
     }
 
 
@@ -1006,31 +966,6 @@ PRODUK_KATEGORI_MAP = {
     "lukisan": "Aksesoris & Souvenir",
     "keramik": "Aksesoris & Souvenir",
     "anyaman": "Aksesoris & Souvenir",
-    'lapis talas': 'Makanan', 'talas bogor': 'Makanan', 'talas': 'Makanan',
-    'roti unyil': 'Makanan', 'asinan': 'Makanan', 'toge goreng': 'Makanan',
-    'laksa': 'Makanan', 'soto mie': 'Makanan', 'batagor': 'Makanan',
-    'dodol': 'Makanan', 'manisan': 'Makanan', 'noga': 'Makanan',
-    'teng teng': 'Makanan', 'enting enting': 'Makanan', 'renginang': 'Makanan',
-    'emping': 'Makanan', 'pie bogor': 'Makanan', 'pie talas': 'Makanan',
-    'gepuk': 'Makanan', 'tauco': 'Makanan', 'ali agrem': 'Makanan',
-    'cungkring': 'Makanan', 'keripik': 'Makanan', 'camilan': 'Makanan',
-    'snack': 'Makanan', 'kue': 'Makanan', 'roti': 'Makanan',
-    'lapis': 'Makanan', 'abon': 'Makanan', 'dendeng': 'Makanan',
-    'sambal': 'Makanan', 'sambel': 'Makanan', 'tempe': 'Makanan',
-    'tahu': 'Makanan', 'madu': 'Makanan', 'jamur': 'Makanan',
-    'stroberi': 'Makanan', 'strawberry': 'Makanan', 'susu': 'Makanan',
-    'kopi': 'Minuman', 'teh': 'Minuman', 'bandrek': 'Minuman',
-    'minuman': 'Minuman', 'jus': 'Minuman', 'sirup': 'Minuman', 'wedang': 'Minuman',
-    'batik': 'Pakaian & Fashion', 'kebaya': 'Pakaian & Fashion',
-    'baju': 'Pakaian & Fashion', 'kaos': 'Pakaian & Fashion',
-    'jaket': 'Pakaian & Fashion', 'celana': 'Pakaian & Fashion',
-    'kemeja': 'Pakaian & Fashion', 'dress': 'Pakaian & Fashion',
-    'kujang': 'Aksesoris & Souvenir', 'uncal': 'Aksesoris & Souvenir',
-    'souvenir': 'Aksesoris & Souvenir', 'gantungan kunci': 'Aksesoris & Souvenir',
-    'magnet kulkas': 'Aksesoris & Souvenir', 'topi': 'Aksesoris & Souvenir',
-    'tas': 'Aksesoris & Souvenir', 'dompet': 'Aksesoris & Souvenir',
-    'gelang': 'Aksesoris & Souvenir', 'bros': 'Aksesoris & Souvenir',
-    'miniatur': 'Aksesoris & Souvenir',
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1091,7 +1026,6 @@ PRODUK_SUB_KATEGORI_MAP = {
     'tahu'         : 'Lauk & Bahan Makanan',
     'madu'         : 'Lauk & Bahan Makanan',
     'jamur'        : 'Lauk & Bahan Makanan',
-    'susu'         : 'Lauk & Bahan Makanan',
     'stroberi'     : 'Lauk & Bahan Makanan',
     'strawberry'   : 'Lauk & Bahan Makanan',
     'telur'        : 'Lauk & Bahan Makanan',
@@ -1147,6 +1081,7 @@ PRODUK_SUB_KATEGORI_MAP = {
     'minuman'      : 'Minuman Tradisional',
     'es'           : 'Minuman Tradisional',
     'sari'         : 'Minuman Tradisional',
+    'susu'         : 'Minuman Tradisional',
 
     # ── Atasan & Pakaian Kasual ──────────────────────────────────────────────
     'baju'         : 'Atasan & Pakaian Kasual',
@@ -1196,9 +1131,9 @@ PRODUK_SUB_KATEGORI_MAP = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 9. ROUTES
-# ─────────────────────────────────────────────────────────────────────────────
+def _contains_keyword(text: str, keyword: str) -> bool:
+    """Cek kemunculan kata/frasa utuh menggunakan word boundary agar kata pendek (es, tas, pin) tidak salah deteksi di tengah kata."""
+    return bool(re.search(r'(?<![a-z0-9])' + re.escape(keyword) + r'(?![a-z0-9])', text))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1222,13 +1157,9 @@ def health():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        data = request.json
-        nama_produk_input = data.get("nama_produk", "")
-        harga_input = float(data.get("harga_produk", 0))
-        kategori_input = data.get("kategori", "")
-        sub_kategori_input = data.get("sub_kategori", "")
+        data = request.json or {}
         nama_produk_input  = data.get('nama_produk', '')
-        harga_input        = float(data.get('harga_produk', 0))
+        harga_input        = float(data.get('harga_produk', data.get('harga', 0)))
         kategori_input     = data.get('kategori', '')
         sub_kategori_input = data.get('sub_kategori', '')
 
@@ -1243,48 +1174,31 @@ def predict():
 
         nama_lower = nama_produk_input.lower()
 
-        # ── VALIDASI 1: Cek mismatch kategori ─────────────────────────────
-        produk_terdeteksi = None
-        # ── VALIDASI 1: Cek mismatch kategori ─────────────────────────────────
+        # ── VALIDASI 1: Cek mismatch kategori (dengan word boundary) ───────
         produk_terdeteksi   = None
         kategori_seharusnya = None
         for kata_kunci in sorted(PRODUK_KATEGORI_MAP.keys(), key=len, reverse=True):
-            if kata_kunci in nama_lower:
-                produk_terdeteksi = kata_kunci
+            if _contains_keyword(nama_lower, kata_kunci):
+                produk_terdeteksi   = kata_kunci
                 kategori_seharusnya = PRODUK_KATEGORI_MAP[kata_kunci]
                 break
 
-        if (
-            kategori_seharusnya
-            and kategori_input
-            and kategori_input != kategori_seharusnya
-        ):
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": (
-                        f"Kategori tidak sesuai untuk produk '{nama_produk_input}'. "
-                        f"Kata kunci '{produk_terdeteksi}' mengindikasikan produk ini termasuk "
-                        f"kategori '{kategori_seharusnya}', bukan '{kategori_input}'. "
-                        f"Silakan pilih kategori '{kategori_seharusnya}'."
-                    ),
-                }
-            ), 400
         if kategori_seharusnya and kategori_input and kategori_input != kategori_seharusnya:
             return jsonify({
                 "status" : "error",
                 "message": (
                     f"Kategori tidak sesuai untuk produk '{nama_produk_input}'. "
-                    f"Kata kunci '{produk_terdeteksi}' mengindikasikan kategori "
-                    f"'{kategori_seharusnya}', bukan '{kategori_input}'."
+                    f"Kata kunci '{produk_terdeteksi}' mengindikasikan produk ini termasuk "
+                    f"kategori '{kategori_seharusnya}', bukan '{kategori_input}'. "
+                    f"Silakan pilih kategori '{kategori_seharusnya}'."
                 )
             }), 400
 
-        # ── VALIDASI 1b: Cek mismatch sub kategori ────────────────────────────
-        sub_terdeteksi        = None
+        # ── VALIDASI 1b: Cek mismatch sub kategori (dengan word boundary) ──
+        sub_terdeteksi          = None
         sub_kategori_seharusnya = None
         for kata_kunci in sorted(PRODUK_SUB_KATEGORI_MAP.keys(), key=len, reverse=True):
-            if kata_kunci in nama_lower:
+            if _contains_keyword(nama_lower, kata_kunci):
                 sub_terdeteksi          = kata_kunci
                 sub_kategori_seharusnya = PRODUK_SUB_KATEGORI_MAP[kata_kunci]
                 break
@@ -1300,8 +1214,8 @@ def predict():
                 )
             }), 400
 
-        # ── VALIDASI 2: Identitas Bogor ────────────────────────────────────────
-        mengandung_identitas_bogor = any(kata in nama_lower for kata in KATA_KUNCI_WILAYAH_BOGOR)
+        # ── VALIDASI 2: Identitas Bogor (dengan word boundary) ─────────────
+        mengandung_identitas_bogor = any(_contains_keyword(nama_lower, kata) for kata in KATA_KUNCI_WILAYAH_BOGOR)
 
         # ── Cari Kompetitor — Cosine Similarity ───────────────────────────────
         query_clean = clean_text(nama_produk_input)
@@ -1689,10 +1603,8 @@ def predict():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-if __name__ == "__main__":
-    app.run(debug=True)
-
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
+

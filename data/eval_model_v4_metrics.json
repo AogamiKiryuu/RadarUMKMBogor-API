@@ -2,11 +2,11 @@
   "model_version": "v4",
   "description": "Random Forest dengan Labeling Per Kategori & Bebas Target Leakage",
   "metrics": {
-    "accuracy": 0.6748,
-    "f1_score": 0.6599,
-    "roc_auc": 0.7242,
-    "cv_accuracy_mean": 0.6273,
-    "cv_accuracy_std": 0.0213
+    "accuracy": 0.7039,
+    "f1_score": 0.753,
+    "roc_auc": 0.7784,
+    "cv_accuracy_mean": 0.6833,
+    "cv_accuracy_std": 0.0329
   },
   "features": {
     "text": "nama_produk_clean",
@@ -25,12 +25,12 @@
   },
   "confusion_matrix": [
     [
-      74,
-      29
+      52,
+      31
     ],
     [
-      38,
-      65
+      30,
+      93
     ]
   ]
 }

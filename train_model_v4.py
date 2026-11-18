@@ -43,8 +43,26 @@ def train_v4():
     df = pd.read_csv(data_path)
     print(f"✅ Dataset berhasil dimuat: {len(df)} baris, {len(df.columns)} kolom")
 
-    # 2. Market Statistics Per Kategori
-    stat_kat = df.groupby('kategori')['harga_produk'].agg(
+    # 2. LABELING PER KATEGORI (Deterministic Tie-Handling dengan rank method='average')
+    # Menggunakan persentil rata-rata penjualan intra-kategori agar produk dengan jumlah_terjual
+    # yang identik (ties akibat imputasi median / capping IQR) dijamin memperoleh label yang sama.
+    df['rank_terjual_kat'] = df.groupby('kategori')['jumlah_terjual'].rank(method='average', pct=True)
+    df['label'] = (df['rank_terjual_kat'] > 0.5).astype(int)
+
+    print("\n📊 Distribusi Frekuensi Label Per Kategori:")
+    crosstab_res = pd.crosstab(df['kategori'], df['label'], margins=True)
+    print(crosstab_res)
+
+    # 3. Split Data Terlebih Dahulu (80:20 Stratified) SEBELUM Menghitung Statistik Pasar
+    # Mencegah data leakage dari distribusi harga data uji ke data latih
+    train_df, test_df = train_test_split(
+        df, test_size=0.2, random_state=42, stratify=df['label']
+    )
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+
+    # 4. Market Statistics Per Kategori (Dihitung HANYA dari Data Latih / Train Set)
+    stat_kat = train_df.groupby('kategori')['harga_produk'].agg(
         median_harga_kategori='median',
         mean_harga_kategori='mean',
         std_harga_kategori='std',
@@ -68,59 +86,48 @@ def train_v4():
     os.makedirs('data', exist_ok=True)
     market_stats_v4.to_csv('data/market_stats_v4.csv', index=False)
     pop_per_sub.to_csv('data/market_stats_sub_kategori_v4.csv', index=False)
-    print("✅ market_stats_v4.csv dan market_stats_sub_kategori_v4.csv disimpan.")
+    print("✅ market_stats_v4.csv (train-only price stats) dan market_stats_sub_kategori_v4.csv disimpan.")
 
-    # 3. Feature Engineering Pasar
-    df = df.merge(stat_kat, on='kategori', how='left')
+    # 5. Feature Engineering Pasar (Menggunakan referensi stat_kat dari Train Set)
+    def apply_market_features(d, stat_ref):
+        d = d.merge(stat_ref, on='kategori', how='left')
+        d['rasio_harga'] = (
+            d['harga_produk'] / d['median_harga_kategori'].replace(0, np.nan)
+        ).fillna(1.0).clip(upper=50)
+        d['zscore_harga'] = (
+            (d['harga_produk'] - d['mean_harga_kategori']) /
+            d['std_harga_kategori'].replace(0, 1)
+        ).clip(-5, 5)
+        d['log_harga'] = np.log1p(d['harga_produk'])
 
-    df['rasio_harga'] = (
-        df['harga_produk'] / df['median_harga_kategori'].replace(0, np.nan)
-    ).fillna(1.0).clip(upper=50)
+        def segmen(r):
+            if r['harga_produk'] <= r['q25_harga_kategori']:
+                return 0
+            elif r['harga_produk'] <= r['q75_harga_kategori']:
+                return 1
+            else:
+                return 2
 
-    df['zscore_harga'] = (
-        (df['harga_produk'] - df['mean_harga_kategori']) /
-        df['std_harga_kategori'].replace(0, 1)
-    ).clip(-5, 5)
+        d['segmen_harga'] = d.apply(segmen, axis=1)
+        return d
 
-    df['log_harga'] = np.log1p(df['harga_produk'])
+    train_df = apply_market_features(train_df, stat_kat)
+    test_df = apply_market_features(test_df, stat_kat)
 
-    def segmen(r):
-        if r['harga_produk'] <= r['q25_harga_kategori']:
-            return 0
-        elif r['harga_produk'] <= r['q75_harga_kategori']:
-            return 1
-        else:
-            return 2
-
-    df['segmen_harga'] = df.apply(segmen, axis=1)
-
-    # 4. LABELING PER KATEGORI (Fair & Balanced 50% : 50%)
-    # Menggunakan persentil penjualan intra-kategori untuk mengatasi perbedaan volume antar industri
-    df['rank_terjual_kat'] = df.groupby('kategori')['jumlah_terjual'].rank(method='first', pct=True)
-    df['label'] = (df['rank_terjual_kat'] > 0.5).astype(int)
-
-    print("\n📊 Distribusi Frekuensi Label Per Kategori:")
-    crosstab_res = pd.crosstab(df['kategori'], df['label'], margins=True)
-    print(crosstab_res)
-
-    # 5. Menyiapkan Feature Matrix (BEBAS LEAKAGE)
+    # 6. Menyiapkan Feature Matrix (BEBAS LEAKAGE)
     text_feature = 'nama_produk_clean'
     cat_features = ['kategori', 'sub_kategori']
     num_features = [
-        'rasio_harga',   # harga relatif median pasar kategori
-        'zscore_harga',  # jarak deviasi standar harga
+        'rasio_harga',   # harga relatif median pasar kategori (train-only)
+        'zscore_harga',  # jarak deviasi standar harga (train-only)
         'log_harga',     # normalisasi log harga
-        'segmen_harga',  # 0=Murah, 1=Menengah, 2=Premium
+        'segmen_harga',  # 0=Murah, 1=Menengah, 2=Premium (train-only)
         'rating',        # reputasi/rating kepuasan produk
     ]
 
     all_features = [text_feature] + cat_features + num_features
-    X = df[all_features]
-    y = df['label']
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    X_train, y_train = train_df[all_features], train_df['label']
+    X_test, y_test = test_df[all_features], test_df['label']
 
     print(f"\n🔢 Split Data: Train={len(X_train)} sampel, Test={len(X_test)} sampel")
 
