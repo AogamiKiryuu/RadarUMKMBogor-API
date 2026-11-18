@@ -685,24 +685,7 @@ KATA_KUNCI_WILAYAH_BOGOR = [
     "kerajinan kayu ciomas",
     "dapur sambel ibu kribo",
     "galeri puncak cisarua",
-    'bogor',
-    'tanah sareal', 'bogor barat', 'bogor timur', 'bogor selatan', 'bogor utara',
-    'bogor tengah', 'sempur', 'ciwaringin', 'gudang', 'paledang', 'babakan',
-    'cibinong', 'citeureup', 'gunung putri', 'jonggol', 'cariu', 'tanjungsari',
-    'sukamakmur', 'babakan madang', 'sentul', 'sukaraja', 'ciawi', 'cigombong',
-    'caringin', 'cisarua', 'puncak', 'megamendung', 'cijeruk', 'kemang',
-    'rancabungur', 'parung', 'ciseeng', 'gunung sindur', 'rumpin', 'cigudeg',
-    'sukajaya', 'nanggung', 'leuwiliang', 'leuwisadeng', 'pamijahan',
-    'cibungbulang', 'ciampea', 'tenjolaya', 'dramaga', 'ciomas', 'tamansari',
-    'jasinga', 'tenjo', 'parungpanjang',
-    'lapis talas', 'talas bogor', 'roti unyil', 'asinan bogor', 'toge goreng',
-    'laksa bogor', 'soto mie bogor', 'batagor bogor', 'dodol bogor',
-    'manisan bogor', 'kujang', 'uncal', 'sangkuriang', 'liong',
-    'noga', 'teng teng bogor', 'enting enting bogor', 'renginang bogor',
-    'pie bogor', 'gepuk bogor', 'tauco bogor', 'ali agrem', 'cungkring',
-    'kopi puncak', 'teh puncak', 'strawberry puncak', 'stroberi cisarua',
-    'stroberi puncak', 'emping ciawi', 'tauco cibinong', 'kopi bogor',
-    'teh bogor', 'susu bogor', 'madu bogor', 'jamur bogor',
+    "tauco cibinong",
 ]
 
 # CATATAN: kunci diurutkan dari LEBIH SPESIFIK ke LEBIH GENERIK.
@@ -1217,6 +1200,17 @@ def predict():
         # ── VALIDASI 2: Identitas Bogor (dengan word boundary) ─────────────
         mengandung_identitas_bogor = any(_contains_keyword(nama_lower, kata) for kata in KATA_KUNCI_WILAYAH_BOGOR)
 
+        if not mengandung_identitas_bogor:
+            return jsonify({
+                "status": "warning",
+                "message": (
+                    f"Produk '{nama_produk_input}' tidak secara eksplisit mencantumkan identitas Bogor. "
+                    f"Untuk memperkuat positioning sebagai produk UMKM Bogor, tambahkan kata kunci "
+                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
+                    f"atau produk ikonik pada nama produk Anda."
+                )
+            }), 400
+
         # ── Cari Kompetitor — Cosine Similarity ───────────────────────────────
         query_clean = clean_text(nama_produk_input)
         query_vec = tfidf_vectorizer.transform([query_clean])
@@ -1232,35 +1226,11 @@ def predict():
         # ── Hitung skor kemiripan tertinggi untuk deteksi coverage dataset ───
         max_sim_score = float(top_sim_scores[0]) if len(top_sim_scores) > 0 else 0.0
 
-        # ── Estimasi Rating & Jumlah dari Kompetitor ─────────────────────────
+        # ── Estimasi Rating dari Kompetitor (Cold-Start Proxy) ───────────────
         if len(kompetitor_df) > 0:
             rating_est = float(kompetitor_df['rating'].mean())
-            jumlah_est = float(kompetitor_df['jumlah_terjual'].median())
         else:
             rating_est = 3.5
-            jumlah_est = 30.0
-
-        if not mengandung_identitas_bogor and len(kompetitor_df) == 0:
-            return jsonify({
-                "status": "error",
-                "message": (
-                    f"Produk '{nama_produk_input}' tidak terdeteksi sebagai produk khas Bogor "
-                    f"(Kota maupun Kabupaten). Pastikan nama produk mengandung identitas lokal Bogor, "
-                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
-                    f"atau produk ikonik (Lapis Talas, Roti Unyil, Kopi Puncak, Renginang, dll)."
-                )
-            }), 400
-
-        if not mengandung_identitas_bogor:
-            return jsonify({
-                "status": "warning",
-                "message": (
-                    f"Produk '{nama_produk_input}' tidak secara eksplisit mencantumkan identitas Bogor. "
-                    f"Untuk memperkuat positioning sebagai produk UMKM Bogor, tambahkan kata kunci "
-                    f"seperti 'Khas Bogor', nama kawasan (Puncak, Cisarua, Cibinong, Dramaga, dll), "
-                    f"atau produk ikonik pada nama produk Anda."
-                )
-            }), 400
 
         # ── Blokir prediksi jika tidak ada produk serupa di dataset ───────────
         if len(kompetitor_df) == 0:
