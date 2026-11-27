@@ -16,9 +16,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 app = Flask(__name__)
 CORS(app)  # Mengizinkan Nuxt 3 untuk mengambil data dari Flask
 
-# 1. Load Model, Dataset & Market Stats
+# 1. Load Model (Prioritas v5: IndoBERT ONNX INT8 + LightGBM, fallback v4: TF-IDF + RF)
 # ─────────────────────────────────────────────────────────────────────────────
-rf_pipeline  = joblib.load('models/model_umkm_bogor_v4.joblib')
+from download_onnx import ensure_onnx_model
+
 df           = pd.read_csv('data/processed/dataset_preprocessed.csv')
 market_stats = pd.read_csv('data/market_stats_v4.csv').set_index('kategori')
 tren_per_kategori = pd.read_csv('tren_per_kategori.csv')
@@ -58,11 +59,89 @@ def clean_text(text):
     return stemmer.stem(" ".join(words))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Pre-Cache TF-IDF untuk pencarian kompetitor
+# 4. Inisialisasi Engine Prediksi & Pencarian Kompetitor
 # ─────────────────────────────────────────────────────────────────────────────
-print("Mengoptimasi pencarian kompetitor (Pre-caching TF-IDF)...")
-tfidf_vectorizer = rf_pipeline.named_steps["preprocessor"].transformers_[0][1]
-X_train_text_db = tfidf_vectorizer.transform(df["nama_produk_clean"].fillna(""))
+USE_INDOBERT_V5 = False
+ACTIVE_MODEL_NAME = "model_umkm_bogor_v4.joblib"
+rf_pipeline = None
+tfidf_vectorizer = None
+X_train_text_db = None
+
+v5_bundle = None
+onnx_session = None
+onnx_tokenizer = None
+X_indobert_db = None
+
+V5_MODEL_PATH = os.path.join('models', 'model_umkm_bogor_v5_indobert_lgbm.joblib')
+V5_ONNX_PATH  = os.path.join('models', 'indobert_base_p1_int8.onnx')
+V5_TOK_PATH   = os.path.join('models', 'indobert_tokenizer.json')
+V5_EMB_PATH   = os.path.join('data', 'indobert_embeddings_int8.npy')
+
+def _init_model_engine():
+    global USE_INDOBERT_V5, ACTIVE_MODEL_NAME
+    global rf_pipeline, tfidf_vectorizer, X_train_text_db
+    global v5_bundle, onnx_session, onnx_tokenizer, X_indobert_db
+
+    # Coba unduh / pastikan file ONNX INT8 tersedia
+    onnx_ready = ensure_onnx_model(V5_ONNX_PATH)
+    v5_files_ok = (
+        onnx_ready
+        and os.path.exists(V5_MODEL_PATH)
+        and os.path.exists(V5_TOK_PATH)
+        and os.path.exists(V5_EMB_PATH)
+    )
+
+    if v5_files_ok:
+        try:
+            import onnxruntime as ort
+            from tokenizers import Tokenizer
+
+            print("⏳ Memuat Engine v5: IndoBERT (ONNX INT8) + LightGBM...")
+            onnx_tokenizer = Tokenizer.from_file(V5_TOK_PATH)
+            onnx_tokenizer.enable_truncation(max_length=64)
+
+            sess_opts = ort.SessionOptions()
+            sess_opts.intra_op_num_threads = 1
+            sess_opts.inter_op_num_threads = 1
+            sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            sess_opts.enable_mem_pattern = False
+            sess_opts.enable_cpu_mem_arena = False
+
+            onnx_session = ort.InferenceSession(
+                V5_ONNX_PATH,
+                sess_options=sess_opts,
+                providers=["CPUExecutionProvider"],
+            )
+            v5_bundle = joblib.load(V5_MODEL_PATH)
+            X_indobert_db = np.load(V5_EMB_PATH)
+            USE_INDOBERT_V5 = True
+            ACTIVE_MODEL_NAME = "model_umkm_bogor_v5_indobert_lgbm.joblib (ONNX INT8)"
+            print("✅ Engine v5 (IndoBERT ONNX INT8 + LightGBM) aktif!")
+            return
+        except Exception as exc:
+            print(f"⚠️ Gagal memuat Engine v5 ({exc}), beralih ke Fallback Model v4...")
+
+    print("Mengoptimasi pencarian kompetitor (Fallback v4: Pre-caching TF-IDF)...")
+    rf_pipeline = joblib.load('models/model_umkm_bogor_v4.joblib')
+    tfidf_vectorizer = rf_pipeline.named_steps["preprocessor"].transformers_[0][1]
+    X_train_text_db = tfidf_vectorizer.transform(df["nama_produk_clean"].fillna(""))
+    USE_INDOBERT_V5 = False
+    ACTIVE_MODEL_NAME = "model_umkm_bogor_v4.joblib (TF-IDF + RF Fallback)"
+
+
+def encode_indobert_onnx(text: str) -> np.ndarray:
+    """Ekstrak embedding 768-dimensi (Mean Pooling) menggunakan IndoBERT ONNX INT8."""
+    enc = onnx_tokenizer.encode(str(text))
+    ids = np.array([enc.ids], dtype=np.int64)
+    mask = np.array([enc.attention_mask], dtype=np.int64)
+    out = onnx_session.run(
+        ["last_hidden_state"],
+        {"input_ids": ids, "attention_mask": mask},
+    )[0]
+    return out.mean(axis=1).astype(np.float32)
+
+
+_init_model_engine()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Konstanta validasi harga
@@ -110,7 +189,7 @@ def _build_sub_kategori_ranking():
 KATEGORI_RANKING     = _build_kategori_ranking()
 SUB_KATEGORI_RANKING = _build_sub_kategori_ranking()
 
-print("✅ Server Flask SIAP DIGUNAKAN! (Model v4 Hybrid Ensemble)")
+print(f"✅ Server Flask SIAP DIGUNAKAN! ({ACTIVE_MODEL_NAME})")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. HELPER: Fitur Bisnis Relatif Pasar
@@ -1129,11 +1208,16 @@ def health():
     return jsonify(
         {
             "status": "ok",
-            "model": "model_umkm_bogor_v4.joblib",
+            "model": ACTIVE_MODEL_NAME,
+            "engine": "v5_indobert_onnx_int8_lightgbm" if USE_INDOBERT_V5 else "v4_tfidf_random_forest",
             "dataset_rows": len(df),
             "kategori_tren": [str(k) for k in tren_per_kategori["kategori"].tolist()],
             "top_kategori": str(top_kat.get("kategori", "-")),
-            "message": "Flask ML API v4 siap digunakan ✅ (Model Fair Per Kategori & Bebas Leakage)",
+            "message": (
+                "Flask ML API v5 siap digunakan ✅ (IndoBERT ONNX INT8 + LightGBM & Semantic Cosine)"
+                if USE_INDOBERT_V5
+                else "Flask ML API v4 siap digunakan ✅ (Model Fair Per Kategori & Bebas Leakage)"
+            ),
         }
     )
 
@@ -1158,13 +1242,27 @@ def predict():
         nama_lower = nama_produk_input.lower()
 
         # ── VALIDASI 1: Cek mismatch kategori (dengan word boundary) ───────
+        # Prioritaskan kata benda utama (head-noun) non-konsumsi seperti 'gantungan kunci',
+        # 'miniatur', 'kaos', 'souvenir' agar produk seperti "Gantungan Kunci Miniatur Lapis Talas"
+        # tidak salah diklaim sebagai 'Makanan'.
+        HEAD_NOUN_PRIORITY = (
+            "gantungan kunci", "magnet kulkas", "miniatur", "souvenir", "suvenir",
+            "tote bag", "totebag", "kaos", "t-shirt", "kemeja", "jaket", "hoodie",
+            "batik", "tas", "dompet", "topi", "gelang", "kalung", "bros", "stiker",
+        )
         produk_terdeteksi   = None
         kategori_seharusnya = None
-        for kata_kunci in sorted(PRODUK_KATEGORI_MAP.keys(), key=len, reverse=True):
-            if _contains_keyword(nama_lower, kata_kunci):
-                produk_terdeteksi   = kata_kunci
-                kategori_seharusnya = PRODUK_KATEGORI_MAP[kata_kunci]
+        for hn in HEAD_NOUN_PRIORITY:
+            if hn in PRODUK_KATEGORI_MAP and _contains_keyword(nama_lower, hn):
+                produk_terdeteksi   = hn
+                kategori_seharusnya = PRODUK_KATEGORI_MAP[hn]
                 break
+        if kategori_seharusnya is None:
+            for kata_kunci in sorted(PRODUK_KATEGORI_MAP.keys(), key=len, reverse=True):
+                if _contains_keyword(nama_lower, kata_kunci):
+                    produk_terdeteksi   = kata_kunci
+                    kategori_seharusnya = PRODUK_KATEGORI_MAP[kata_kunci]
+                    break
 
         if kategori_seharusnya and kategori_input and kategori_input != kategori_seharusnya:
             return jsonify({
@@ -1211,15 +1309,23 @@ def predict():
                 )
             }), 400
 
-        # ── Cari Kompetitor — Cosine Similarity ───────────────────────────────
+        # ── Cari Kompetitor — Cosine Similarity (Semantik IndoBERT v5 / TF-IDF v4) ──
         query_clean = clean_text(nama_produk_input)
-        query_vec = tfidf_vectorizer.transform([query_clean])
-        sim_scores = cosine_similarity(query_vec, X_train_text_db).flatten()
+        query_emb = None
+        if USE_INDOBERT_V5:
+            query_emb = encode_indobert_onnx(nama_produk_input)
+            sim_scores = cosine_similarity(query_emb, X_indobert_db).flatten()
+            sim_min_valid = 0.70
+        else:
+            query_vec = tfidf_vectorizer.transform([query_clean])
+            sim_scores = cosine_similarity(query_vec, X_train_text_db).flatten()
+            sim_min_valid = 0.05
+
         top_indices = sim_scores.argsort()[-5:][::-1]
 
         kompetitor_df = df.iloc[top_indices].copy()
         top_sim_scores = sim_scores[top_indices]
-        kompetitor_mask = top_sim_scores > 0.05
+        kompetitor_mask = top_sim_scores > sim_min_valid
         kompetitor_df = kompetitor_df[kompetitor_mask]
         filtered_sim_scores = top_sim_scores[kompetitor_mask]
 
@@ -1284,7 +1390,7 @@ def predict():
                 "median_pasar": round(fitur_bisnis["median_pasar"], 0),
             }), 400
 
-        # ── PREDIKSI Machine Learning v4 (Bebas Target Leakage) ────────────
+        # ── PREDIKSI Machine Learning (v5 IndoBERT ONNX INT8 + LightGBM / Fallback v4) ──
         input_df = pd.DataFrame([{
             'nama_produk_clean': query_clean,
             'kategori': kategori_input,
@@ -1296,18 +1402,26 @@ def predict():
             'rating': rating_est,
         }])
 
-        probabilitas_ml = float(rf_pipeline.predict_proba(input_df)[0][1])
+        if USE_INDOBERT_V5:
+            X_cat = v5_bundle["ohe"].transform(input_df[v5_bundle["cat_cols"]])
+            X_num = v5_bundle["scaler"].transform(input_df[v5_bundle["num_cols"]])
+            X_v5 = np.hstack([query_emb, X_cat, X_num])
+            probabilitas_ml = float(v5_bundle["classifier"].predict_proba(X_v5)[0][1])
+        else:
+            probabilitas_ml = float(rf_pipeline.predict_proba(input_df)[0][1])
 
-        # ── HYBRID ENSEMBLE: Model ML v4 + Bukti Traksi Pasar (Cosine Similarity) ──
-        # Model ML v4 objektif dan bebas target leakage.
-        # Namun, produk UMKM legendaris / niche yang di dataset hanya memiliki sedikit sampel
-        # (seperti Roti Unyil) tetap memiliki bukti traksi nyata jika ditemukan kompetitor
-        # relevan dengan rating tinggi di marketplace.
-        if len(kompetitor_df) > 0 and max_sim_score >= 0.15:
+        # ── HYBRID ENSEMBLE: Model ML + Bukti Traksi Pasar (Cosine Similarity) ──
+        sim_hybrid_min = 0.75 if USE_INDOBERT_V5 else 0.15
+        if len(kompetitor_df) > 0 and max_sim_score >= sim_hybrid_min:
             # Normalisasi rating kompetitor (3.0 -> 0.0, 5.0 -> 1.0)
             rating_factor = min(1.0, max(0.0, (rating_est - 3.0) / 2.0))
-            # Skor bukti pasar memadukan tingkat kemiripan tekstual dan kepuasan pembeli
-            market_proof = (max_sim_score * 0.5) + (rating_factor * 0.5)
+            sim_factor = (
+                float(np.clip((max_sim_score - 0.65) / 0.35, 0.0, 1.0))
+                if USE_INDOBERT_V5
+                else max_sim_score
+            )
+            # Skor bukti pasar memadukan tingkat kemiripan semantik/tekstual dan kepuasan pembeli
+            market_proof = (sim_factor * 0.5) + (rating_factor * 0.5)
             # Bobot ensemble: 75% Model ML + 25% Traksi Bukti Pasar
             probabilitas = (0.75 * probabilitas_ml) + (0.25 * market_proof)
         else:
@@ -1494,7 +1608,9 @@ def predict():
         # Catatan: kasus kompetitor=0 sudah diblokir sebelum prediksi,
         # sehingga di sini kompetitor_df dijamin > 0.
         peringatan_dataset = None
-        if max_sim_score < 0.15:
+        warn_low = 0.75 if USE_INDOBERT_V5 else 0.15
+        warn_med = 0.82 if USE_INDOBERT_V5 else 0.35
+        if max_sim_score < warn_low:
             # Produk ditemukan tapi kemiripannya sangat rendah
             peringatan_dataset = {
                 "level"   : "kemiripan_rendah",
@@ -1512,7 +1628,7 @@ def predict():
                 ),
                 "akurasi_prediksi": "sedang",
             }
-        elif max_sim_score < 0.35:
+        elif max_sim_score < warn_med:
             # Kemiripan sedang — perlu notifikasi ringan
             peringatan_dataset = {
                 "level"   : "kemiripan_sedang",
@@ -1529,6 +1645,7 @@ def predict():
         # ── RESPONSE ──────────────────────────────────────────────────────────
         return jsonify({
             "status"              : "success",
+            "model_engine"        : "v5_indobert_onnx_int8_lightgbm" if USE_INDOBERT_V5 else "v4_tfidf_random_forest",
             "kesimpulan"          : status_prediksi,
             "peluang_laku_persen" : peluang_persen,
             "alasan"              : alasan,

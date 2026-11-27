@@ -7,3 +7,5 @@ venv/
 .DS_Store
 .vscode/
 *.log
+models/indobert_base_p1_int8.onnx
+models/_tmp_*.onnx

@@ -1,0 +1,24 @@
+{
+  "model_version": "v5_indobert_onnx_int8_lightgbm",
+  "accuracy": 72.82,
+  "precision": 75.57,
+  "recall": 80.49,
+  "f1_score": 77.95,
+  "roc_auc": 0.7889,
+  "cv_acc_mean": 69.18,
+  "cv_acc_std": 3.97,
+  "cv_auc_mean": 0.7484,
+  "confusion_matrix": [
+    [
+      51,
+      32
+    ],
+    [
+      24,
+      99
+    ]
+  ],
+  "train_samples": 821,
+  "test_samples": 206,
+  "feature_dim": 787
+}

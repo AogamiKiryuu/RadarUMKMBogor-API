@@ -1,0 +1,308 @@
+{
+  "results": [
+    {
+      "feature_extraction": "TF-IDF Unigram (1,1)",
+      "model": "Random Forest",
+      "text_dim": 1000,
+      "total_dim": 1019,
+      "accuracy": 70.87,
+      "precision": 73.68,
+      "recall": 79.67,
+      "f1_score": 76.56,
+      "roc_auc": 0.7715,
+      "cv_acc_mean": 69.42,
+      "cv_acc_std": 4.07,
+      "cv_auc_mean": 0.7606,
+      "cm": [
+        [
+          48,
+          35
+        ],
+        [
+          25,
+          98
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "TF-IDF Unigram (1,1)",
+      "model": "XGBoost",
+      "text_dim": 1000,
+      "total_dim": 1019,
+      "accuracy": 71.36,
+      "precision": 79.09,
+      "recall": 70.73,
+      "f1_score": 74.68,
+      "roc_auc": 0.7626,
+      "cv_acc_mean": 66.13,
+      "cv_acc_std": 5.61,
+      "cv_auc_mean": 0.7305,
+      "cm": [
+        [
+          60,
+          23
+        ],
+        [
+          36,
+          87
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "TF-IDF Unigram (1,1)",
+      "model": "LightGBM",
+      "text_dim": 1000,
+      "total_dim": 1019,
+      "accuracy": 69.42,
+      "precision": 76.79,
+      "recall": 69.92,
+      "f1_score": 73.19,
+      "roc_auc": 0.7432,
+      "cv_acc_mean": 66.5,
+      "cv_acc_std": 4.82,
+      "cv_auc_mean": 0.7065,
+      "cm": [
+        [
+          57,
+          26
+        ],
+        [
+          37,
+          86
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "TF-IDF Unigram+Bigram (1,2)",
+      "model": "Random Forest",
+      "text_dim": 1000,
+      "total_dim": 1019,
+      "accuracy": 72.82,
+      "precision": 76.38,
+      "recall": 78.86,
+      "f1_score": 77.6,
+      "roc_auc": 0.7859,
+      "cv_acc_mean": 70.76,
+      "cv_acc_std": 5.52,
+      "cv_auc_mean": 0.7532,
+      "cm": [
+        [
+          53,
+          30
+        ],
+        [
+          26,
+          97
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "TF-IDF Unigram+Bigram (1,2)",
+      "model": "XGBoost",
+      "text_dim": 1000,
+      "total_dim": 1019,
+      "accuracy": 69.9,
+      "precision": 78.5,
+      "recall": 68.29,
+      "f1_score": 73.04,
+      "roc_auc": 0.7716,
+      "cv_acc_mean": 66.38,
+      "cv_acc_std": 4.44,
+      "cv_auc_mean": 0.7275,
+      "cm": [
+        [
+          60,
+          23
+        ],
+        [
+          39,
+          84
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "TF-IDF Unigram+Bigram (1,2)",
+      "model": "LightGBM",
+      "text_dim": 1000,
+      "total_dim": 1019,
+      "accuracy": 73.79,
+      "precision": 81.08,
+      "recall": 73.17,
+      "f1_score": 76.92,
+      "roc_auc": 0.7708,
+      "cv_acc_mean": 66.99,
+      "cv_acc_std": 4.72,
+      "cv_auc_mean": 0.7137,
+      "cm": [
+        [
+          62,
+          21
+        ],
+        [
+          33,
+          90
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "Word2Vec (Skip-Gram 100d)",
+      "model": "Random Forest",
+      "text_dim": 100,
+      "total_dim": 119,
+      "accuracy": 72.33,
+      "precision": 73.57,
+      "recall": 83.74,
+      "f1_score": 78.33,
+      "roc_auc": 0.7785,
+      "cv_acc_mean": 70.04,
+      "cv_acc_std": 4.99,
+      "cv_auc_mean": 0.7457,
+      "cm": [
+        [
+          46,
+          37
+        ],
+        [
+          20,
+          103
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "Word2Vec (Skip-Gram 100d)",
+      "model": "XGBoost",
+      "text_dim": 100,
+      "total_dim": 119,
+      "accuracy": 71.84,
+      "precision": 76.0,
+      "recall": 77.24,
+      "f1_score": 76.61,
+      "roc_auc": 0.7721,
+      "cv_acc_mean": 69.18,
+      "cv_acc_std": 4.7,
+      "cv_auc_mean": 0.7436,
+      "cm": [
+        [
+          53,
+          30
+        ],
+        [
+          28,
+          95
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "Word2Vec (Skip-Gram 100d)",
+      "model": "LightGBM",
+      "text_dim": 100,
+      "total_dim": 119,
+      "accuracy": 72.82,
+      "precision": 76.38,
+      "recall": 78.86,
+      "f1_score": 77.6,
+      "roc_auc": 0.7729,
+      "cv_acc_mean": 69.3,
+      "cv_acc_std": 4.99,
+      "cv_auc_mean": 0.7448,
+      "cm": [
+        [
+          53,
+          30
+        ],
+        [
+          26,
+          97
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "IndoBERT (Base-P1 768d)",
+      "model": "Random Forest",
+      "text_dim": 768,
+      "total_dim": 787,
+      "accuracy": 72.33,
+      "precision": 74.26,
+      "recall": 82.11,
+      "f1_score": 77.99,
+      "roc_auc": 0.7489,
+      "cv_acc_mean": 67.96,
+      "cv_acc_std": 4.13,
+      "cv_auc_mean": 0.7392,
+      "cm": [
+        [
+          48,
+          35
+        ],
+        [
+          22,
+          101
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "IndoBERT (Base-P1 768d)",
+      "model": "XGBoost",
+      "text_dim": 768,
+      "total_dim": 787,
+      "accuracy": 72.33,
+      "precision": 75.38,
+      "recall": 79.67,
+      "f1_score": 77.47,
+      "roc_auc": 0.7817,
+      "cv_acc_mean": 70.4,
+      "cv_acc_std": 2.99,
+      "cv_auc_mean": 0.754,
+      "cm": [
+        [
+          51,
+          32
+        ],
+        [
+          25,
+          98
+        ]
+      ]
+    },
+    {
+      "feature_extraction": "IndoBERT (Base-P1 768d)",
+      "model": "LightGBM",
+      "text_dim": 768,
+      "total_dim": 787,
+      "accuracy": 74.76,
+      "precision": 77.52,
+      "recall": 81.3,
+      "f1_score": 79.37,
+      "roc_auc": 0.7893,
+      "cv_acc_mean": 69.18,
+      "cv_acc_std": 3.97,
+      "cv_auc_mean": 0.7484,
+      "cm": [
+        [
+          54,
+          29
+        ],
+        [
+          23,
+          100
+        ]
+      ]
+    }
+  ],
+  "case_study": {
+    "samples": [
+      "Lapis Talas Khas Bogor",
+      "Gantungan Kunci Miniatur Lapis Talas Khas Bogor",
+      "Lapis Bogor Sangkuriang Full Talas Keju",
+      "Gantungan Kunci Bogor Oleh-Oleh Khas Bogor Dua Sisi"
+    ],
+    "tfidf_sim_q1_vs_makanan": 0.2285,
+    "tfidf_sim_q1_vs_souvenir_lapis": 0.5407,
+    "tfidf_sim_souvenir_lapis_vs_makanan": 0.1236,
+    "tfidf_sim_souvenir_lapis_vs_souvenir_ganci": 0.5701,
+    "indobert_sim_q1_vs_makanan": 0.8604,
+    "indobert_sim_q1_vs_souvenir_lapis": 0.8586,
+    "indobert_sim_souvenir_lapis_vs_makanan": 0.7486,
+    "indobert_sim_souvenir_lapis_vs_souvenir_ganci": 0.782
+  }
+}

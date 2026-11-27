@@ -1,0 +1,20 @@
+{
+  "onnx_size_mb": 118.87,
+  "load_time_sec": 1.39,
+  "avg_latency_ms": 50.6,
+  "ram_start_mb": 150.27,
+  "ram_after_onnx_mb": 294.91,
+  "ram_after_infer_mb": 295.83,
+  "ram_peak_with_lgbm_mb": 308.59,
+  "fp32_vs_int8_cosine_fidelity": 0.99913,
+  "accuracy": 72.82,
+  "precision": 75.19,
+  "recall": 81.3,
+  "f1_score": 78.12,
+  "roc_auc": 0.7897,
+  "case_study": {
+    "food_vs_food": 0.7931,
+    "food_vs_souvenir": 0.7931,
+    "souvenir_vs_souvenir": 0.8024
+  }
+}
